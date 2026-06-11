@@ -2,26 +2,27 @@
 
 一个轻量的 Windows 托盘小工具，用来查看 Codex 账号剩余额度。
 
-当前版本：`2.0.0`
+当前版本：`2.0.1`
 
 ## 特点
 
 - 体积小，便携版单文件约 5 MB。
-- 不需要安装，双击 EXE 即可运行。
 - UI 简单，只显示关键额度信息。
-- 常驻系统托盘，日常占用和打扰都很低。
+- 系统占用低，适合长期放在托盘或桌面角落。
 - 支持小窗常驻，也可以切换到大窗查看完整信息。
 - 直接调用本机 Codex app-server 读取额度，不依赖打开 Codex 桌面窗口。
 
 ## 下载和运行
 
-在仓库根目录或 GitHub Releases 下载：
+仓库根目录提供两个版本：
 
 ```text
-Codex Quota Monitor 2.0.0 Portable.exe
+Codex Quota Monitor 2.0.1 Portable.exe
+Codex Quota Monitor 2.0.1 Setup.exe
 ```
 
-双击运行即可。
+推荐普通用户使用 `Portable.exe`，双击即可运行，不需要安装。
+如果希望固定安装到系统中，可以使用 `Setup.exe`。
 
 使用前需要：
 
@@ -32,8 +33,8 @@ Codex Quota Monitor 2.0.0 Portable.exe
 ## 使用方式
 
 运行后会出现在系统托盘。
-
-左键点击托盘图标可以显示或隐藏窗口。右键托盘图标可以打开菜单，支持切换小窗/大窗、置顶、开机自启动、立即刷新和退出。
+左键点击托盘图标可以显示或隐藏窗口。
+右键托盘图标可以打开菜单，支持切换小窗/大窗、置顶、开机自启动、立即刷新和退出。
 
 小窗适合日常挂在桌面上：
 
@@ -69,7 +70,16 @@ Codex: 5小时84% / 周91%
 
 ### 打开后没有额度怎么办？
 
-先确认 Codex 已安装并登录。如果 Codex 安装在非默认位置，可以设置环境变量：
+先确认 Codex 已安装并登录。
+
+2.0.1 已兼容 Codex 安装在如下两类路径：
+
+```text
+%LOCALAPPDATA%\OpenAI\Codex\bin\codex.exe
+%LOCALAPPDATA%\OpenAI\Codex\bin\<版本或哈希目录>\codex.exe
+```
+
+如果 Codex 安装在其他位置，可以设置环境变量：
 
 ```text
 CODEX_QUOTA_CODEX_PATH
@@ -86,6 +96,11 @@ CODEX_QUOTA_CODEX_PATH
 便携版记录的是当前 EXE 路径。如果移动过 EXE 文件，请在右键菜单中关闭开机自启动，再重新开启。
 
 ## 版本说明
+
+### 2.0.1
+
+- 兼容 Codex CLI 安装在 `OpenAI\Codex\bin\<版本或哈希目录>\codex.exe` 的情况。
+- 新增正式安装包发布文件。
 
 ### 2.0.0
 

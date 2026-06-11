@@ -2,16 +2,19 @@ use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fmt;
-use std::{env, fs, path::PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
 use tauri::{AppHandle, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{Child, ChildStdout, Command};
 use tokio::time::timeout;
 
 const CLIENT_NAME: &str = "codex-quota-monitor-v2";
-const CLIENT_VERSION: &str = "2.0.0";
+const CLIENT_VERSION: &str = "2.0.1";
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(15);
 const CACHE_FILE: &str = "last-quota.json";
 #[cfg(windows)]
@@ -49,7 +52,9 @@ struct WindowQuota {
 
 pub async fn read_quota() -> Result<QuotaSnapshot, QuotaError> {
     let codex_path = find_codex_path().ok_or_else(|| {
-        QuotaError("Cannot find Codex CLI. Install Codex Desktop or set CODEX_QUOTA_CODEX_PATH.".into())
+        QuotaError(
+            "Cannot find Codex CLI. Install Codex Desktop or set CODEX_QUOTA_CODEX_PATH.".into(),
+        )
     })?;
 
     let mut command = Command::new(codex_path);
@@ -72,13 +77,18 @@ pub async fn read_quota() -> Result<QuotaSnapshot, QuotaError> {
     let mut lines = BufReader::new(stdout).lines();
 
     let result = async {
-        send_json_rpc(&mut child, 1, "initialize", Some(json!({
-            "clientInfo": {
-                "name": CLIENT_NAME,
-                "version": CLIENT_VERSION
-            },
-            "capabilities": {}
-        })))
+        send_json_rpc(
+            &mut child,
+            1,
+            "initialize",
+            Some(json!({
+                "clientInfo": {
+                    "name": CLIENT_NAME,
+                    "version": CLIENT_VERSION
+                },
+                "capabilities": {}
+            })),
+        )
         .await?;
         let _ = read_response(&mut lines, 1).await?;
 
@@ -121,7 +131,10 @@ pub fn write_cached_quota(app: &AppHandle, snapshot: &QuotaSnapshot) {
 }
 
 fn cache_file(app: &AppHandle) -> Option<PathBuf> {
-    app.path().app_data_dir().ok().map(|path| path.join(CACHE_FILE))
+    app.path()
+        .app_data_dir()
+        .ok()
+        .map(|path| path.join(CACHE_FILE))
 }
 
 fn find_codex_path() -> Option<PathBuf> {
@@ -133,17 +146,42 @@ fn find_codex_path() -> Option<PathBuf> {
     }
 
     if let Ok(local_app_data) = env::var("LOCALAPPDATA") {
-        let path = PathBuf::from(local_app_data)
-            .join("OpenAI")
-            .join("Codex")
-            .join("bin")
-            .join("codex.exe");
-        if path.exists() {
-            return Some(path);
+        let codex_dir = PathBuf::from(local_app_data).join("OpenAI").join("Codex");
+        let bin_dir = codex_dir.join("bin");
+        let direct_path = bin_dir.join("codex.exe");
+        if direct_path.exists() {
+            return Some(direct_path);
+        }
+        if let Some(nested_path) = find_nested_codex_exe(&bin_dir) {
+            return Some(nested_path);
         }
     }
 
     Some(PathBuf::from("codex.exe"))
+}
+
+fn find_nested_codex_exe(bin_dir: &Path) -> Option<PathBuf> {
+    let entries = fs::read_dir(bin_dir).ok()?;
+    let mut candidates = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path().join("codex.exe"))
+        .filter(|path| path.exists())
+        .collect::<Vec<_>>();
+
+    candidates.sort_by(|left, right| {
+        let left_modified = left
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .ok();
+        let right_modified = right
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .ok();
+        right_modified
+            .cmp(&left_modified)
+            .then_with(|| right.cmp(left))
+    });
+    candidates.into_iter().next()
 }
 
 async fn send_json_rpc(
@@ -185,21 +223,22 @@ async fn read_response(
     lines: &mut Lines<BufReader<ChildStdout>>,
     id: i64,
 ) -> Result<Value, QuotaError> {
-    let task = async {
-        while let Some(line) = lines
-            .next_line()
-            .await
-            .map_err(|error| QuotaError(format!("Cannot read Codex app-server output: {error}")))?
-        {
-            let Ok(message) = serde_json::from_str::<Value>(&line) else {
-                continue;
-            };
-            if message.get("id").and_then(Value::as_i64) == Some(id) {
-                return Ok(message);
+    let task =
+        async {
+            while let Some(line) = lines.next_line().await.map_err(|error| {
+                QuotaError(format!("Cannot read Codex app-server output: {error}"))
+            })? {
+                let Ok(message) = serde_json::from_str::<Value>(&line) else {
+                    continue;
+                };
+                if message.get("id").and_then(Value::as_i64) == Some(id) {
+                    return Ok(message);
+                }
             }
-        }
-        Err(QuotaError("Codex app-server closed before responding.".into()))
-    };
+            Err(QuotaError(
+                "Codex app-server closed before responding.".into(),
+            ))
+        };
 
     timeout(RESPONSE_TIMEOUT, task)
         .await
