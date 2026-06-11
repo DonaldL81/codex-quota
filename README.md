@@ -38,7 +38,7 @@ Codex Quota Monitor 2.0.0 Portable.exe
 小窗适合日常挂在桌面上：
 
 ```text
-Codex: 5小时 88% / 周 98%
+Codex: 5小时84% / 周91%
 ```
 
 大窗会显示刷新时间、重置时间和两条进度条。额度颜色规则：
@@ -53,11 +53,11 @@ Codex: 5小时 88% / 周 98%
 
 大窗模式：
 
-![大窗模式](codex-quota-v2/assets/screenshots/large-window.png)
+<img src="codex-quota-v2/assets/screenshots/large-window.png" alt="大窗模式" width="361">
 
 小窗模式：
 
-![小窗模式](codex-quota-v2/assets/screenshots/small-window.png)
+<img src="codex-quota-v2/assets/screenshots/small-window.png" alt="小窗模式" width="258">
 
 ## 常见问题
 
