@@ -342,7 +342,7 @@ dependencies = [
 
 [[package]]
 name = "codex-quota-v2"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "chrono",
  "serde",

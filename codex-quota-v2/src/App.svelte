@@ -58,6 +58,7 @@
 
   $: quotaWindows = makeQuotaWindows(quota);
   $: isSmall = mode === "small";
+  $: hasQuota = hasUsableQuota(quota);
   $: scaleStyle = `--ui-scale:${uiScale.toFixed(3)};--width-scale:${widthScale.toFixed(3)};--height-scale:${heightScale.toFixed(3)};`;
 
   onMount(() => {
@@ -88,7 +89,7 @@
       return () => {};
     }
 
-    void hydrateQuotaCache();
+    await hydrateQuotaCache();
     void refreshQuota();
     const timer = window.setInterval(refreshQuota, refreshMs);
     void hydrateWindowState();
@@ -98,10 +99,12 @@
     const unlistenMode = await listenSafe<string>("mode-changed", (event) => {
       mode = event.payload === "large" ? "large" : "small";
       updateScale();
-      if (!quota) {
-        void hydrateQuotaCache();
-      }
-      if (!quota || status !== "ready") {
+      void hydrateQuotaCache().then(() => {
+        if (!hasUsableQuota(quota) || status !== "ready") {
+          void refreshQuota();
+        }
+      });
+      if (!hasUsableQuota(quota) || status !== "ready") {
         void refreshQuota();
       }
     });
@@ -338,7 +341,7 @@
   }
 
   function makeQuotaWindows(currentQuota: QuotaSnapshot | null): QuotaWindow[] {
-    if (!currentQuota) return [];
+    if (!hasUsableQuota(currentQuota)) return [];
     return [
       {
         label: "5小时额度",
@@ -372,6 +375,14 @@
     );
   }
 
+  function hasUsableQuota(currentQuota: QuotaSnapshot | null): currentQuota is QuotaSnapshot {
+    return (
+      !!currentQuota &&
+      Number.isFinite(currentQuota.primaryRemaining) &&
+      Number.isFinite(currentQuota.secondaryRemaining)
+    );
+  }
+
   function readString(raw: RawQuota, camel: string, snake?: string) {
     const value = raw[camel] ?? (snake ? raw[snake] : undefined);
     return typeof value === "string" ? value.trim() : "";
@@ -384,9 +395,9 @@
   }
 
   function compactSummaryText() {
+    if (hasUsableQuota(quota)) return null;
     if (status === "error") return "Codex: 读取失败";
-    if (!quota) return "Codex: 正在读取";
-    return null;
+    return "Codex: 正在读取";
   }
 
   function subtitle() {
@@ -480,7 +491,7 @@
     <span class="compact-summary">
       {#if compactSummaryText()}
         {compactSummaryText()}
-      {:else if quota}
+      {:else if hasQuota && quota}
         <span>Codex: 5小时</span><span class={`compact-percent ${colorClass(quota.primaryRemaining)}`}>{quota.primaryRemaining}%</span>
         <span> / 周</span><span class={`compact-percent ${colorClass(quota.secondaryRemaining)}`}>{quota.secondaryRemaining}%</span>
       {/if}

@@ -2,7 +2,7 @@
 
 一个轻量的 Windows 托盘小工具，用来查看 Codex 账号剩余额度。
 
-当前版本：`2.0.1`
+当前版本：`2.0.2`
 
 ## 特点
 
@@ -17,11 +17,11 @@
 仓库根目录提供两个版本：
 
 ```text
-Codex Quota Monitor 2.0.1 Portable.exe
-Codex Quota Monitor 2.0.1 Setup.exe
+Codex Quota Monitor 2.0.2 Portable.exe
+Codex Quota Monitor 2.0.2 Setup.exe
 ```
 
-推荐普通用户使用 `Portable.exe`，双击即可运行，不需要安装。
+推荐普通用户使用最新的 `Portable.exe`，双击即可运行，不需要安装。
 如果希望固定安装到系统中，可以使用 `Setup.exe`。
 
 使用前需要：
@@ -96,6 +96,11 @@ CODEX_QUOTA_CODEX_PATH
 便携版记录的是当前 EXE 路径。如果移动过 EXE 文件，请在右键菜单中关闭开机自启动，再重新开启。
 
 ## 版本说明
+
+### 2.0.2
+
+- 优化小窗启动和切换时的数据复用，减少卡在“正在读取”的情况。
+- 提供便携版和正式安装包。
 
 ### 2.0.1
 
