@@ -319,7 +319,7 @@ function Invoke-CodexQuotaProbe {
   }
 }
 
-Write-Host "Codex 额度监控 2.0 发布验证"
+Write-Host "Codex 额度监控发布验证"
 Write-Host "项目目录: $projectRoot"
 Write-Host ""
 

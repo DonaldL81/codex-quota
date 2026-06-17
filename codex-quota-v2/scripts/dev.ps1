@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $projectRoot
 
-Write-Host "Starting Codex Quota Monitor 2.0 dev mode..."
+Write-Host "Starting Codex Quota Monitor 2.1 dev mode..."
 Write-Host "Project: $projectRoot"
 
 $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"

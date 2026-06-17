@@ -6,6 +6,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use std::sync::Mutex;
 
 const TRAY_ID: &str = "main";
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 type Color = [u8; 4];
 
 struct AutostartMenuState {
@@ -25,9 +26,17 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         None::<&str>,
     )?;
     let refresh = MenuItem::with_id(app, "refresh", "立即刷新", true, None::<&str>)?;
+    let version = MenuItem::with_id(
+        app,
+        "version",
+        format!("版本 {}", display_version()),
+        false,
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
     let separator_1 = PredefinedMenuItem::separator(app)?;
     let separator_2 = PredefinedMenuItem::separator(app)?;
+    let separator_3 = PredefinedMenuItem::separator(app)?;
 
     Menu::with_items(
         app,
@@ -39,6 +48,8 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &autostart,
             &refresh,
             &separator_2,
+            &version,
+            &separator_3,
             &quit,
         ],
     )
@@ -120,6 +131,13 @@ fn autostart_checked(app: &AppHandle) -> bool {
     app.try_state::<AutostartMenuState>()
         .and_then(|state| state.checked.lock().ok().map(|checked| *checked))
         .unwrap_or(false)
+}
+
+fn display_version() -> String {
+    APP_VERSION
+        .strip_suffix(".0")
+        .unwrap_or(APP_VERSION)
+        .to_string()
 }
 
 pub fn update_quota_icon(

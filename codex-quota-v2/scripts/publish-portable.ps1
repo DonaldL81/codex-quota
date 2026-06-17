@@ -3,7 +3,7 @@
 $projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $projectRoot
 
-Write-Host "正在发布 Codex 额度监控 2.0 便携版..."
+Write-Host "正在发布 Codex 额度监控便携版..."
 Write-Host "项目目录：$projectRoot"
 Write-Host ""
 

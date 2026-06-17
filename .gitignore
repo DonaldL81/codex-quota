@@ -26,6 +26,8 @@ dev-*.log
 *.exe
 !Codex Quota Monitor 2.0.2 Portable.exe
 !Codex Quota Monitor 2.0.2 Setup.exe
+!Codex Quota Monitor 2.1.0 Portable.exe
+!Codex Quota Monitor 2.1.0 Setup.exe
 *.msi
 *.zip
 *.7z

@@ -459,10 +459,23 @@
     void invoke("remember_window_state").catch(() => {});
   }
 
+  async function hidePanel() {
+    try {
+      await invoke("hide_panel");
+    } catch {
+      // Keep the preview usable outside Tauri.
+    }
+  }
+
   function startDrag(event: MouseEvent) {
     if (event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (target.closest("button") || target.closest(".resize-handle")) return;
+    if (event.detail >= 2) {
+      event.preventDefault();
+      void hidePanel();
+      return;
+    }
     if (!appWindow) return;
     event.preventDefault();
     void appWindow.startDragging().finally(rememberWindowState);

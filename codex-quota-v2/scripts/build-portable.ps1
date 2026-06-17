@@ -3,7 +3,6 @@
 $projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $projectRoot
 
-Write-Host "正在打包 Codex 额度监控 2.0 便携版 EXE..."
 Write-Host "项目目录：$projectRoot"
 
 . (Join-Path $PSScriptRoot "release-version.ps1")
@@ -14,6 +13,7 @@ if ($env:CODEX_QUOTA_BUMP_VERSION -eq "1") {
 } else {
   $selectedVersion = Invoke-ReleaseVersionPrompt -ProjectRoot $projectRoot
 }
+Write-Host "正在打包 Codex 额度监控 $selectedVersion 便携版 EXE..."
 
 $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
 if ((Test-Path $cargoBin) -and ($env:Path -notlike "*$cargoBin*")) {
