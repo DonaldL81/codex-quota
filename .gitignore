@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+
+# Frontend build output
+dist/
+dist-portable/
+
+# Rust/Tauri build output
+target/
+src-tauri/target/
+src-tauri/gen/
+
+# Local runtime/cache folders
+.npm-cache/
+.edge-shot-profile/
+.runtime/
+screenshots/
+!codex-quota-v2/assets/screenshots/
+!codex-quota-v2/assets/screenshots/*.png
+
+# Logs
+*.log
+dev-*.log
+
+# Packaged binaries and archives
+*.exe
+!Codex Quota Monitor 2.2.0 Portable.exe
+!Codex Quota Monitor 2.2.0 Setup.exe
+*.msi
+*.zip
+*.7z
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local-only V2 convenience docs/scripts
+codex-quota-v2/README.md
+codex-quota-v2/发布说明.md
+codex-quota-v2/一键发布便携版.cmd
+codex-quota-v2/一键启动开发版.cmd
+codex-quota-v2/一键打包便携版EXE.cmd
+codex-quota-v2/一键打包正式版.cmd
+codex-quota-v2/一键验证发布包.cmd

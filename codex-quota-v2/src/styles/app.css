@@ -1,0 +1,347 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+  background: transparent;
+  color: #202531;
+  font-synthesis: none;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  cursor: default;
+  user-select: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+.shell {
+  --ui-scale: 1;
+  --width-scale: 1;
+  --height-scale: 1;
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  color: #202531;
+  background: rgba(248, 249, 253, 0.9);
+  border: 0;
+  border-radius: 12px;
+  box-shadow: none;
+  backdrop-filter: blur(16px);
+  cursor: default;
+  user-select: none;
+}
+
+.shell.large-mode {
+  flex-direction: column;
+}
+
+.compact-row {
+  display: none;
+}
+
+.resize-handle {
+  display: none;
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  width: clamp(14px, calc(14px * var(--ui-scale)), 20px);
+  height: clamp(14px, calc(14px * var(--ui-scale)), 20px);
+  cursor: nwse-resize;
+}
+
+.large-mode .resize-handle {
+  display: block;
+}
+
+.topbar,
+.quota-line,
+.window-actions {
+  display: flex;
+  align-items: center;
+}
+
+.topbar {
+  height: clamp(24px, calc(24px * var(--height-scale)), 36px);
+  padding: 0 clamp(10px, calc(10px * var(--width-scale)), 15px);
+  justify-content: space-between;
+}
+
+.title-area {
+  min-width: 0;
+}
+
+p {
+  margin: 0;
+  overflow: hidden;
+  color: #758092;
+  font-size: clamp(10.5px, calc(10.5px * var(--ui-scale)), 15px);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.window-actions {
+  flex: 0 0 auto;
+  gap: clamp(4px, calc(4px * var(--width-scale)), 7px);
+}
+
+button {
+  display: inline-flex;
+  width: clamp(20px, calc(20px * var(--ui-scale)), 28px);
+  height: clamp(20px, calc(20px * var(--ui-scale)), 28px);
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  box-shadow: none;
+  color: #697280;
+  font-size: clamp(12px, calc(12px * var(--ui-scale)), 17px);
+  line-height: 1;
+  cursor: pointer;
+}
+
+button:hover {
+  background: rgba(115, 128, 145, 0.12);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+.icon {
+  display: block;
+  width: clamp(14px, calc(14px * var(--ui-scale)), 19px);
+  height: clamp(14px, calc(14px * var(--ui-scale)), 19px);
+  margin: auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.window-icon {
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  stroke-width: 1.6;
+}
+
+.icon-solid {
+  fill: currentColor;
+  stroke: none;
+}
+
+.spinning span {
+  display: inline-block;
+  animation: spin 0.7s linear infinite;
+}
+
+.quota-list {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: clamp(0px, calc((var(--height-scale) - 1) * 11px), 15px);
+  min-height: 0;
+  padding: 0 clamp(10px, calc(10px * var(--width-scale)), 15px)
+    clamp(6px, calc(7px * var(--height-scale)), 14px);
+}
+
+.quota-item {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0;
+  border-bottom: 1px solid rgba(75, 86, 103, 0.1);
+}
+
+.quota-item:last-child {
+  border-bottom: 0;
+}
+
+.quota-line {
+  min-width: 0;
+  justify-content: space-between;
+}
+
+.quota-title {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: clamp(5px, calc(5px * var(--width-scale)), 8px);
+}
+
+.quota-label {
+  flex: 0 0 auto;
+  color: #202531;
+  font-size: clamp(11px, calc(11px * var(--ui-scale)), 16px);
+  font-weight: 800;
+}
+
+.quota-reset {
+  min-width: 0;
+  overflow: hidden;
+  color: #7f8794;
+  font-size: clamp(9px, calc(9px * var(--ui-scale)), 13px);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quota-facts {
+  flex: 0 0 auto;
+  color: #202531;
+  white-space: nowrap;
+}
+
+.quota-facts strong {
+  font-size: clamp(14px, calc(14px * var(--ui-scale)), 22px);
+  line-height: 1;
+}
+
+.ok {
+  color: #22a447;
+}
+
+.warning {
+  color: #c47a00;
+}
+
+.danger {
+  color: #d92d20;
+}
+
+.meter {
+  width: 100%;
+  height: clamp(4px, calc(4px * var(--ui-scale)), 8px);
+  margin-top: clamp(3px, calc(3px * var(--height-scale)), 7px);
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(126, 137, 153, 0.18);
+}
+
+.meter-fill {
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  transition: width 180ms ease;
+}
+
+.meter-fill.ok {
+  background: #45d063;
+}
+
+.meter-fill.warning {
+  background: #f5a623;
+}
+
+.meter-fill.danger {
+  background: #ef4444;
+}
+
+.footer,
+.dot {
+  display: none;
+}
+
+.empty {
+  display: block;
+  padding: 16px 0;
+  color: #7c8492;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.shell.small-mode {
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px 0 9px;
+  border-radius: 8px;
+}
+
+.small-mode .compact-row {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  gap: 4px;
+}
+
+.small-mode .compact-summary {
+  display: block;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: #202531;
+  font-size: 11.5px;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-percent {
+  font-weight: 800;
+}
+
+.small-mode .compact-large,
+.small-mode .compact-refresh {
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
+}
+
+.small-mode .topbar,
+.small-mode .quota-list,
+.small-mode .footer {
+  display: none;
+}
+
+.large-mode .compact-row {
+  display: none;
+}
+
+.toast {
+  position: fixed;
+  top: 6px;
+  left: 50%;
+  z-index: 20;
+  padding: 7px 10px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(226, 231, 240, 0.8);
+  border-radius: 9px;
+  background: rgba(247, 248, 252, 0.96);
+  box-shadow: 0 10px 24px rgba(35, 47, 70, 0.12);
+  color: #667085;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

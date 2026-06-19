@@ -1,0 +1,361 @@
+use crate::window;
+use tauri::image::Image;
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{AppHandle, Emitter, Manager};
+use std::sync::Mutex;
+
+const TRAY_ID: &str = "main";
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+type Color = [u8; 4];
+
+struct AutostartMenuState {
+    checked: Mutex<bool>,
+}
+
+fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let small = MenuItem::with_id(app, "small", "打开小窗", true, None::<&str>)?;
+    let large = MenuItem::with_id(app, "large", "打开大窗", true, None::<&str>)?;
+    let topmost = MenuItem::with_id(app, "topmost", "置顶/取消置顶", true, None::<&str>)?;
+    let autostart = CheckMenuItem::with_id(
+        app,
+        "autostart",
+        "开机自启动",
+        true,
+        autostart_checked(app),
+        None::<&str>,
+    )?;
+    let refresh = MenuItem::with_id(app, "refresh", "立即刷新", true, None::<&str>)?;
+    let version = MenuItem::with_id(
+        app,
+        "version",
+        format!("版本 {}", display_version()),
+        false,
+        None::<&str>,
+    )?;
+    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+    let separator_1 = PredefinedMenuItem::separator(app)?;
+    let separator_2 = PredefinedMenuItem::separator(app)?;
+    let separator_3 = PredefinedMenuItem::separator(app)?;
+
+    Menu::with_items(
+        app,
+        &[
+            &small,
+            &large,
+            &topmost,
+            &separator_1,
+            &autostart,
+            &refresh,
+            &separator_2,
+            &version,
+            &separator_3,
+            &quit,
+        ],
+    )
+}
+
+pub fn set_autostart_checked(app: &AppHandle, checked: bool) -> tauri::Result<()> {
+    if let Some(state) = app.try_state::<AutostartMenuState>() {
+        if let Ok(mut current) = state.checked.lock() {
+            *current = checked;
+        }
+    }
+
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        tray.set_menu(Some(build_menu(app)?))?;
+    }
+    Ok(())
+}
+
+pub fn popup_context_menu(app: &AppHandle) -> tauri::Result<()> {
+    if let Some(window) = app.get_webview_window("main") {
+        let menu = build_menu(app)?;
+        window.popup_menu(&menu)?;
+    }
+    Ok(())
+}
+
+pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
+    app.manage(AutostartMenuState {
+        checked: Mutex::new(false),
+    });
+
+    let menu = build_menu(app)?;
+
+    TrayIconBuilder::with_id(TRAY_ID)
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .tooltip("Codex 额度")
+        .icon(create_tray_image(None, None, "idle"))
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "small" => {
+                let _ = window::show_panel(app, "small");
+                let _ = app.emit("mode-changed", "small");
+            }
+            "large" => {
+                let _ = window::show_panel(app, "large");
+                let _ = app.emit("mode-changed", "large");
+            }
+            "topmost" => {
+                let _ = window::toggle_topmost(app);
+            }
+            "autostart" => {
+                let _ = app.emit("toggle-autostart-requested", ());
+            }
+            "refresh" => {
+                let _ = app.emit("quota-refresh-requested", ());
+            }
+            "quit" => {
+                app.exit(0);
+            }
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                rect,
+                ..
+            } = event
+            {
+                let app = tray.app_handle();
+                let _ = window::handle_tray_left_click(&app, rect);
+            }
+        })
+        .build(app)?;
+    Ok(())
+}
+
+fn autostart_checked(app: &AppHandle) -> bool {
+    app.try_state::<AutostartMenuState>()
+        .and_then(|state| state.checked.lock().ok().map(|checked| *checked))
+        .unwrap_or(false)
+}
+
+fn display_version() -> String {
+    APP_VERSION
+        .strip_suffix(".0")
+        .unwrap_or(APP_VERSION)
+        .to_string()
+}
+
+pub fn update_quota_icon(
+    app: &AppHandle,
+    primary_remaining: Option<i64>,
+    secondary_remaining: Option<i64>,
+    status: &str,
+) -> tauri::Result<()> {
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        tray.set_icon(Some(create_tray_image(
+            primary_remaining,
+            secondary_remaining,
+            status,
+        )))?;
+        tray.set_icon_as_template(false)?;
+        tray.set_tooltip(Some(make_tooltip(
+            primary_remaining,
+            secondary_remaining,
+            status,
+        )))?;
+    }
+    Ok(())
+}
+
+fn make_tooltip(
+    primary_remaining: Option<i64>,
+    secondary_remaining: Option<i64>,
+    status: &str,
+) -> String {
+    if status == "error" {
+        return "Codex 额度读取失败".into();
+    }
+    match primary_remaining {
+        Some(primary) => {
+            let weekly = secondary_remaining
+                .map(|secondary| format!(" / 周 {secondary}%"))
+                .unwrap_or_default();
+            format!("Codex 剩余: 5小时 {primary}%{weekly}")
+        }
+        None => "正在读取 Codex 额度".into(),
+    }
+}
+
+fn create_tray_image(
+    primary_remaining: Option<i64>,
+    secondary_remaining: Option<i64>,
+    status: &str,
+) -> Image<'static> {
+    let size = 32;
+    let mut rgba = vec![0; size * size * 4];
+    let palette = pick_tray_palette(status);
+
+    fill_cloud_mark(
+        &mut rgba,
+        size,
+        palette.border,
+        palette.background,
+        palette.track,
+        pick_quota_color(primary_remaining, status, palette.dim),
+        pick_quota_color(secondary_remaining, status, palette.dim),
+    );
+
+    Image::new_owned(rgba, size as u32, size as u32)
+}
+
+struct TrayPalette {
+    dim: Color,
+    border: Color,
+    background: Color,
+    track: Color,
+}
+
+fn pick_tray_palette(status: &str) -> TrayPalette {
+    let dim = if matches!(status, "error" | "idle" | "loading") {
+        [239, 68, 68, 255]
+    } else {
+        [70, 78, 90, 255]
+    };
+    TrayPalette {
+        dim,
+        border: [0, 0, 0, 255],
+        background: [8, 10, 14, 255],
+        track: [45, 50, 60, 255],
+    }
+}
+
+fn pick_quota_color(percent: Option<i64>, status: &str, fallback: Color) -> Color {
+    if status == "error" {
+        return [239, 68, 68, 255];
+    }
+    let Some(value) = percent else {
+        return fallback;
+    };
+    if value <= 20 {
+        [239, 68, 68, 255]
+    } else if value <= 50 {
+        [245, 158, 11, 255]
+    } else {
+        [34, 197, 94, 255]
+    }
+}
+
+fn fill_cloud_mark(
+    rgba: &mut [u8],
+    canvas_size: usize,
+    border: Color,
+    background: Color,
+    track: Color,
+    primary_color: Color,
+    secondary_color: Color,
+) {
+    let scale = canvas_size as f64 / 32.0;
+    for y in 0..canvas_size {
+        for x in 0..canvas_size {
+            let px = (x as f64 + 0.5) / scale;
+            let py = (y as f64 + 0.5) / scale;
+            let distance = cloud_signed_distance(px, py);
+            if distance <= 0.0 {
+                let color = if distance > -1.05 {
+                    border
+                } else {
+                    background
+                };
+                set_pixel(rgba, canvas_size, x, y, color);
+            }
+        }
+    }
+    fill_cloud_progress_bar(rgba, canvas_size, 6.9, track);
+    fill_cloud_progress_bar(rgba, canvas_size, 6.9, primary_color);
+    fill_cloud_progress_bar(rgba, canvas_size, 18.2, track);
+    fill_cloud_progress_bar(rgba, canvas_size, 18.2, secondary_color);
+}
+
+fn cloud_signed_distance(x: f64, y: f64) -> f64 {
+    let circles = [
+        (9.0, 14.5, 8.1),
+        (13.8, 9.4, 8.1),
+        (20.0, 9.2, 7.4),
+        (23.4, 15.6, 7.8),
+        (21.2, 21.4, 7.8),
+        (14.0, 22.1, 7.6),
+        (8.7, 19.9, 7.2),
+    ];
+    circles
+        .iter()
+        .map(|(cx, cy, radius)| ((x - cx).hypot(y - cy)) - radius)
+        .fold(f64::INFINITY, f64::min)
+}
+
+fn fill_cloud_progress_bar(rgba: &mut [u8], canvas_size: usize, y: f64, color: Color) {
+    let x = 7.2;
+    let width = 17.6;
+    let height = 6.2;
+    fill_rounded_rect_in_cloud(
+        rgba,
+        canvas_size,
+        x,
+        y,
+        width,
+        height,
+        height / 2.0,
+        color,
+    );
+}
+
+fn fill_rounded_rect_in_cloud(
+    rgba: &mut [u8],
+    canvas_size: usize,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    radius: f64,
+    color: Color,
+) {
+    let scale = canvas_size as f64 / 32.0;
+    let start_x = (x * scale).floor().max(0.0) as usize;
+    let end_x = ((x + width) * scale).ceil().min(canvas_size as f64) as usize;
+    let start_y = (y * scale).floor().max(0.0) as usize;
+    let end_y = ((y + height) * scale).ceil().min(canvas_size as f64) as usize;
+
+    for py in start_y..end_y {
+        for px in start_x..end_x {
+            let ux = (px as f64 + 0.5) / scale;
+            let uy = (py as f64 + 0.5) / scale;
+            if cloud_signed_distance(ux, uy) > -0.8 {
+                continue;
+            }
+            if rounded_rect_signed_distance(ux, uy, x, y, width, height, radius) <= 0.0 {
+                set_pixel(rgba, canvas_size, px, py, color);
+            }
+        }
+    }
+}
+
+fn rounded_rect_signed_distance(
+    px: f64,
+    py: f64,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    radius: f64,
+) -> f64 {
+    let cx = x + width / 2.0;
+    let cy = y + height / 2.0;
+    let qx = (px - cx).abs() - (width / 2.0 - radius);
+    let qy = (py - cy).abs() - (height / 2.0 - radius);
+    qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - radius
+}
+
+fn set_pixel(rgba: &mut [u8], canvas_size: usize, x: usize, y: usize, color: Color) {
+    if x >= canvas_size || y >= canvas_size {
+        return;
+    }
+    let index = (y * canvas_size + x) * 4;
+    rgba[index] = color[0];
+    rgba[index + 1] = color[1];
+    rgba[index + 2] = color[2];
+    rgba[index + 3] = color[3];
+}
