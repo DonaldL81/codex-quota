@@ -144,6 +144,7 @@ pub fn show_panel_near_tray(
         state.visible = true;
     }
     let _ = app.emit("mode-changed", normalized);
+    let _ = app.emit("panel-visibility-changed", true);
     save_persisted_state(app);
     Ok(())
 }
@@ -156,6 +157,7 @@ pub fn hide_panel(app: &AppHandle) -> tauri::Result<()> {
     if let Ok(mut state) = app.state::<SharedWindowState>().lock() {
         state.visible = false;
     }
+    let _ = app.emit("panel-visibility-changed", false);
     save_persisted_state(app);
     Ok(())
 }

@@ -91,11 +91,9 @@ pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id().as_ref() {
             "small" => {
                 let _ = window::show_panel(app, "small");
-                let _ = app.emit("mode-changed", "small");
             }
             "large" => {
                 let _ = window::show_panel(app, "large");
-                let _ = app.emit("mode-changed", "large");
             }
             "topmost" => {
                 let _ = window::toggle_topmost(app);

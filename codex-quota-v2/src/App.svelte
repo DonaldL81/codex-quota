@@ -32,7 +32,8 @@
   type CurrentWindow = ReturnType<typeof getCurrentWindow>;
   type RawQuota = Partial<QuotaSnapshot> & Record<string, unknown>;
 
-  const refreshMs = 5 * 60_000;
+  const visibleRefreshMs = 30_000;
+  const hiddenRefreshMs = 5 * 60_000;
   const invokeTimeoutMs = 35_000;
   const largeBaseWidth = 200;
   const largeBaseHeight = 112;
@@ -44,6 +45,7 @@
 
   let mode: "small" | "large" = previewInitialMode;
   let alwaysOnTop = true;
+  let panelVisible = true;
   let autostart = false;
   let quota: QuotaSnapshot | null = previewEnabled ? sampleQuota() : readCachedQuota();
   let lastGoodQuota: QuotaSnapshot | null = quota;
@@ -55,6 +57,7 @@
   let uiScale = 1;
   let widthScale = 1;
   let heightScale = 1;
+  let refreshTimer: number | undefined;
   let appWindow: CurrentWindow | null = null;
 
   $: displayQuota = hasUsableQuota(quota) ? quota : lastGoodQuota;
@@ -92,9 +95,9 @@
     }
 
     await hydrateQuotaCache();
+    await hydrateWindowState();
     void refreshQuota();
-    const timer = window.setInterval(refreshQuota, refreshMs);
-    void hydrateWindowState();
+    scheduleRefreshTimer();
     void refreshAutostartState();
 
     const unlistenRefresh = await listenSafe("quota-refresh-requested", refreshQuota);
@@ -110,13 +113,22 @@
     const unlistenTopmost = await listenSafe<boolean>("topmost-changed", (event) => {
       alwaysOnTop = event.payload;
     });
+    const unlistenVisibility = await listenSafe<boolean>("panel-visibility-changed", (event) => {
+      const wasVisible = panelVisible;
+      panelVisible = event.payload;
+      scheduleRefreshTimer();
+      if (panelVisible && !wasVisible) {
+        void refreshQuota();
+      }
+    });
     const unlistenAutostart = await listenSafe("toggle-autostart-requested", toggleAutostart);
 
     return () => {
-      window.clearInterval(timer);
+      window.clearInterval(refreshTimer);
       unlistenRefresh();
       unlistenMode();
       unlistenTopmost();
+      unlistenVisibility();
       unlistenAutostart();
     };
   }
@@ -130,6 +142,7 @@
       );
       mode = state.mode;
       alwaysOnTop = state.alwaysOnTop;
+      panelVisible = state.visible;
       updateScale();
     } catch {
       updateScale();
@@ -145,6 +158,11 @@
     } catch {
       return () => {};
     }
+  }
+
+  function scheduleRefreshTimer() {
+    window.clearInterval(refreshTimer);
+    refreshTimer = window.setInterval(refreshQuota, panelVisible ? visibleRefreshMs : hiddenRefreshMs);
   }
 
   async function refreshQuota() {
@@ -528,7 +546,10 @@
       </svg>
     </button>
     <button class:spinning={isRefreshing} class="compact-refresh" title="立即刷新" aria-label="立即刷新" on:click={refreshQuota}>
-      <span>↻</span>
+      <svg class="icon refresh-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
+        <path d="M21 3v6h-6"></path>
+      </svg>
     </button>
   </section>
 
@@ -549,7 +570,10 @@
         </svg>
       </button>
       <button class:spinning={isRefreshing} title="立即刷新" aria-label="立即刷新" on:click={refreshQuota}>
-        <span>↻</span>
+        <svg class="icon refresh-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
+          <path d="M21 3v6h-6"></path>
+        </svg>
       </button>
     </div>
   </header>

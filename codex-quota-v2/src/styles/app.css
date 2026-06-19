@@ -155,8 +155,12 @@ button:active {
   stroke: none;
 }
 
-.spinning span {
-  display: inline-block;
+.refresh-icon {
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+}
+
+.spinning .refresh-icon {
   animation: spin 0.7s linear infinite;
 }
 
