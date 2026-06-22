@@ -60,6 +60,11 @@ fn set_autostart_menu_checked(app: AppHandle, checked: bool) -> Result<(), Strin
     tray::set_autostart_checked(&app, checked).map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+fn set_auto_refresh_menu_seconds(app: AppHandle, seconds: u32) -> Result<(), String> {
+    tray::set_auto_refresh_seconds(&app, seconds).map_err(|error| error.to_string())
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TrayQuotaState {
@@ -114,6 +119,7 @@ pub fn run() {
             remember_window_state,
             show_context_menu,
             set_autostart_menu_checked,
+            set_auto_refresh_menu_seconds,
             update_tray_quota
         ])
         .run(tauri::generate_context!())

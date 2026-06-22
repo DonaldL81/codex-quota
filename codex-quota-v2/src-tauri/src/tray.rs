@@ -1,16 +1,32 @@
 use crate::window;
 use std::sync::Mutex;
 use tauri::image::Image;
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager};
 
 const TRAY_ID: &str = "main";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+const AUTO_REFRESH_PRESETS: &[(u32, &str)] = &[
+    (5, "5s"),
+    (10, "10s"),
+    (20, "20s"),
+    (30, "30s"),
+    (60, "60s"),
+    (300, "5min"),
+    (600, "10min"),
+    (1200, "20min"),
+    (1800, "30min"),
+    (3600, "60min"),
+];
 type Color = [u8; 4];
 
 struct AutostartMenuState {
     checked: Mutex<bool>,
+}
+
+struct AutoRefreshMenuState {
+    seconds: Mutex<u32>,
 }
 
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
@@ -25,7 +41,34 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         autostart_checked(app),
         None::<&str>,
     )?;
-    let refresh = MenuItem::with_id(app, "refresh", "立即刷新", true, None::<&str>)?;
+    let current_auto_refresh_seconds = auto_refresh_seconds(app);
+    let auto_refresh_5s = auto_refresh_item(app, 5, "5s", current_auto_refresh_seconds)?;
+    let auto_refresh_10s = auto_refresh_item(app, 10, "10s", current_auto_refresh_seconds)?;
+    let auto_refresh_20s = auto_refresh_item(app, 20, "20s", current_auto_refresh_seconds)?;
+    let auto_refresh_30s = auto_refresh_item(app, 30, "30s", current_auto_refresh_seconds)?;
+    let auto_refresh_60s = auto_refresh_item(app, 60, "60s", current_auto_refresh_seconds)?;
+    let auto_refresh_5min = auto_refresh_item(app, 300, "5min", current_auto_refresh_seconds)?;
+    let auto_refresh_10min = auto_refresh_item(app, 600, "10min", current_auto_refresh_seconds)?;
+    let auto_refresh_20min = auto_refresh_item(app, 1200, "20min", current_auto_refresh_seconds)?;
+    let auto_refresh_30min = auto_refresh_item(app, 1800, "30min", current_auto_refresh_seconds)?;
+    let auto_refresh_60min = auto_refresh_item(app, 3600, "60min", current_auto_refresh_seconds)?;
+    let auto_refresh = Submenu::with_items(
+        app,
+        format!("自动刷新 {}", auto_refresh_label(current_auto_refresh_seconds)),
+        true,
+        &[
+            &auto_refresh_5s,
+            &auto_refresh_10s,
+            &auto_refresh_20s,
+            &auto_refresh_30s,
+            &auto_refresh_60s,
+            &auto_refresh_5min,
+            &auto_refresh_10min,
+            &auto_refresh_20min,
+            &auto_refresh_30min,
+            &auto_refresh_60min,
+        ],
+    )?;
     let restart = MenuItem::with_id(app, "restart", "重启", true, None::<&str>)?;
     let version = MenuItem::with_id(
         app,
@@ -47,7 +90,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &topmost,
             &separator_1,
             &autostart,
-            &refresh,
+            &auto_refresh,
             &restart,
             &separator_2,
             &version,
@@ -70,6 +113,19 @@ pub fn set_autostart_checked(app: &AppHandle, checked: bool) -> tauri::Result<()
     Ok(())
 }
 
+pub fn set_auto_refresh_seconds(app: &AppHandle, seconds: u32) -> tauri::Result<()> {
+    if let Some(state) = app.try_state::<AutoRefreshMenuState>() {
+        if let Ok(mut current) = state.seconds.lock() {
+            *current = seconds;
+        }
+    }
+
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        tray.set_menu(Some(build_menu(app)?))?;
+    }
+    Ok(())
+}
+
 pub fn popup_context_menu(app: &AppHandle) -> tauri::Result<()> {
     if let Some(window) = app.get_webview_window("main") {
         let menu = build_menu(app)?;
@@ -81,6 +137,9 @@ pub fn popup_context_menu(app: &AppHandle) -> tauri::Result<()> {
 pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
     app.manage(AutostartMenuState {
         checked: Mutex::new(false),
+    });
+    app.manage(AutoRefreshMenuState {
+        seconds: Mutex::new(30),
     });
 
     let menu = build_menu(app)?;
@@ -103,8 +162,11 @@ pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
             "autostart" => {
                 let _ = app.emit("toggle-autostart-requested", ());
             }
-            "refresh" => {
-                let _ = app.emit("quota-refresh-requested", ());
+            id if id.starts_with("auto-refresh-") => {
+                if let Some(seconds) = parse_auto_refresh_menu_id(id) {
+                    let _ = set_auto_refresh_seconds(app, seconds);
+                    let _ = app.emit("auto-refresh-seconds-changed", seconds);
+                }
             }
             "restart" => {
                 app.restart();
@@ -134,6 +196,44 @@ fn autostart_checked(app: &AppHandle) -> bool {
     app.try_state::<AutostartMenuState>()
         .and_then(|state| state.checked.lock().ok().map(|checked| *checked))
         .unwrap_or(false)
+}
+
+fn auto_refresh_seconds(app: &AppHandle) -> u32 {
+    app.try_state::<AutoRefreshMenuState>()
+        .and_then(|state| state.seconds.lock().ok().map(|seconds| *seconds))
+        .unwrap_or(30)
+}
+
+fn auto_refresh_item(
+    app: &AppHandle,
+    seconds: u32,
+    label: &str,
+    current_seconds: u32,
+) -> tauri::Result<CheckMenuItem<tauri::Wry>> {
+    CheckMenuItem::with_id(
+        app,
+        format!("auto-refresh-{seconds}"),
+        label,
+        true,
+        seconds == current_seconds,
+        None::<&str>,
+    )
+}
+
+fn parse_auto_refresh_menu_id(id: &str) -> Option<u32> {
+    let seconds = id.strip_prefix("auto-refresh-")?.parse::<u32>().ok()?;
+    AUTO_REFRESH_PRESETS
+        .iter()
+        .any(|(preset_seconds, _)| *preset_seconds == seconds)
+        .then_some(seconds)
+}
+
+fn auto_refresh_label(seconds: u32) -> String {
+    AUTO_REFRESH_PRESETS
+        .iter()
+        .find_map(|(preset_seconds, label)| (*preset_seconds == seconds).then_some(*label))
+        .unwrap_or("30s")
+        .to_string()
 }
 
 fn display_version() -> String {

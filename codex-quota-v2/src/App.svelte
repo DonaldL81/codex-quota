@@ -32,14 +32,15 @@
   type CurrentWindow = ReturnType<typeof getCurrentWindow>;
   type RawQuota = Partial<QuotaSnapshot> & Record<string, unknown>;
 
-  const visibleRefreshMs = 30_000;
-  const hiddenRefreshMs = 5 * 60_000;
+  const defaultAutoRefreshSeconds = 30;
+  const autoRefreshPresets = [5, 10, 20, 30, 60, 300, 600, 1200, 1800, 3600];
   const visibleCacheSyncMs = 5_000;
   const invokeTimeoutMs = 35_000;
   const largeBaseWidth = 200;
   const largeBaseHeight = 112;
   const dragThresholdPx = 4;
   const quotaCacheKey = "codex-quota-v2:last-quota";
+  const autoRefreshCacheKey = "codex-quota-v2:auto-refresh-seconds";
   const previewParams =
     typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search);
   const previewEnabled = previewParams.has("mock");
@@ -53,6 +54,7 @@
   let lastGoodQuota: QuotaSnapshot | null = quota;
   let displayQuota: QuotaSnapshot | null = quota;
   let lastRefreshText = quota?.updatedAt || "--:--:--";
+  let autoRefreshSeconds = readAutoRefreshSeconds();
   let status: Status = previewEnabled ? "ready" : quota ? "stale" : "loading";
   let isRefreshing = false;
   let errorText = "";
@@ -113,8 +115,12 @@
     scheduleRefreshTimer();
     scheduleCacheSyncTimer();
     void refreshAutostartState();
+    void syncAutoRefreshMenu();
 
     const unlistenRefresh = await listenSafe("quota-refresh-requested", refreshQuota);
+    const unlistenAutoRefresh = await listenSafe<number>("auto-refresh-seconds-changed", (event) => {
+      setAutoRefreshSeconds(event.payload);
+    });
     const unlistenMode = await listenSafe<string>("mode-changed", (event) => {
       mode = event.payload === "large" ? "large" : "small";
       updateScale();
@@ -143,6 +149,7 @@
       window.clearInterval(refreshTimer);
       window.clearInterval(cacheSyncTimer);
       unlistenRefresh();
+      unlistenAutoRefresh();
       unlistenMode();
       unlistenTopmost();
       unlistenVisibility();
@@ -179,7 +186,7 @@
 
   function scheduleRefreshTimer() {
     window.clearInterval(refreshTimer);
-    refreshTimer = window.setInterval(refreshQuota, panelVisible ? visibleRefreshMs : hiddenRefreshMs);
+    refreshTimer = window.setInterval(refreshQuota, autoRefreshSeconds * 1000);
   }
 
   function scheduleCacheSyncTimer() {
@@ -310,6 +317,23 @@
     }
   }
 
+  async function syncAutoRefreshMenu() {
+    try {
+      await invoke("set_auto_refresh_menu_seconds", { seconds: autoRefreshSeconds });
+    } catch {
+      // The menu label is a convenience; the frontend timer remains authoritative.
+    }
+  }
+
+  async function setAutoRefreshSeconds(nextSeconds: number) {
+    if (!isAutoRefreshPreset(nextSeconds)) return;
+    autoRefreshSeconds = nextSeconds;
+    writeAutoRefreshSeconds(nextSeconds);
+    scheduleRefreshTimer();
+    await syncAutoRefreshMenu();
+    showToast(`自动刷新 ${autoRefreshLabel(nextSeconds)}`);
+  }
+
   function showToast(text: string) {
     toast = text;
     window.clearTimeout(toastTimer);
@@ -392,6 +416,36 @@
     } catch {
       return null;
     }
+  }
+
+  function readAutoRefreshSeconds() {
+    try {
+      const value = window.localStorage.getItem(autoRefreshCacheKey);
+      const seconds = Number(value);
+      if (isAutoRefreshPreset(seconds)) {
+        return seconds;
+      }
+    } catch {
+      // Fall back to the default refresh interval when storage is unavailable.
+    }
+    return defaultAutoRefreshSeconds;
+  }
+
+  function writeAutoRefreshSeconds(seconds: number) {
+    try {
+      window.localStorage.setItem(autoRefreshCacheKey, String(seconds));
+    } catch {
+      // The in-memory value still applies for this session.
+    }
+  }
+
+  function isAutoRefreshPreset(seconds: number) {
+    return Number.isInteger(seconds) && autoRefreshPresets.includes(seconds);
+  }
+
+  function autoRefreshLabel(seconds: number) {
+    if (seconds < 60) return `${seconds}s`;
+    return `${Math.round(seconds / 60)}min`;
   }
 
   async function hydrateQuotaCache() {
