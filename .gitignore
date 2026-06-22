@@ -24,8 +24,8 @@ dev-*.log
 
 # Packaged binaries and archives
 *.exe
-!Codex Quota Monitor 2.2.0 Portable.exe
-!Codex Quota Monitor 2.2.0 Setup.exe
+!Codex Quota Monitor 2.2.2 Portable.exe
+!Codex Quota Monitor 2.2.2 Setup.exe
 *.msi
 *.zip
 *.7z

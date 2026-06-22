@@ -1,9 +1,9 @@
 use crate::window;
+use std::sync::Mutex;
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager};
-use std::sync::Mutex;
 
 const TRAY_ID: &str = "main";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -26,6 +26,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         None::<&str>,
     )?;
     let refresh = MenuItem::with_id(app, "refresh", "立即刷新", true, None::<&str>)?;
+    let restart = MenuItem::with_id(app, "restart", "重启", true, None::<&str>)?;
     let version = MenuItem::with_id(
         app,
         "version",
@@ -47,6 +48,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &separator_1,
             &autostart,
             &refresh,
+            &restart,
             &separator_2,
             &version,
             &separator_3,
@@ -103,6 +105,9 @@ pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
             }
             "refresh" => {
                 let _ = app.emit("quota-refresh-requested", ());
+            }
+            "restart" => {
+                app.restart();
             }
             "quit" => {
                 app.exit(0);
@@ -166,7 +171,7 @@ fn make_tooltip(
     status: &str,
 ) -> String {
     if status == "error" {
-        return "Codex 额度读取失败".into();
+        return "Codex 额度暂时无法获取".into();
     }
     match primary_remaining {
         Some(primary) => {

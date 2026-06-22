@@ -106,6 +106,11 @@ p {
   gap: clamp(4px, calc(4px * var(--width-scale)), 7px);
 }
 
+.window-actions button {
+  width: clamp(19px, calc(19px * var(--ui-scale)), 27px);
+  height: clamp(19px, calc(19px * var(--ui-scale)), 27px);
+}
+
 button {
   display: inline-flex;
   width: clamp(20px, calc(20px * var(--ui-scale)), 28px);
@@ -150,12 +155,30 @@ button:active {
   stroke-width: 1.6;
 }
 
+.action-icon {
+  width: clamp(15px, calc(15px * var(--ui-scale)), 20px);
+  height: clamp(15px, calc(15px * var(--ui-scale)), 20px);
+}
+
+.window-actions .window-icon {
+  width: clamp(16px, calc(16px * var(--ui-scale)), 21px);
+  height: clamp(16px, calc(16px * var(--ui-scale)), 21px);
+  stroke-width: 1.75;
+}
+
+.pin-icon {
+  transform: scale(0.9);
+  transform-origin: 50% 50%;
+}
+
 .icon-solid {
   fill: currentColor;
   stroke: none;
 }
 
 .refresh-icon {
+  width: 10px;
+  height: 10px;
   transform-box: view-box;
   transform-origin: 50% 50%;
 }
@@ -180,11 +203,6 @@ button:active {
   flex-direction: column;
   justify-content: center;
   padding: 0;
-  border-bottom: 1px solid rgba(75, 86, 103, 0.1);
-}
-
-.quota-item:last-child {
-  border-bottom: 0;
 }
 
 .quota-line {

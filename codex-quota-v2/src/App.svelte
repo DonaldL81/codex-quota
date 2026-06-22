@@ -34,9 +34,11 @@
 
   const visibleRefreshMs = 30_000;
   const hiddenRefreshMs = 5 * 60_000;
+  const visibleCacheSyncMs = 5_000;
   const invokeTimeoutMs = 35_000;
   const largeBaseWidth = 200;
   const largeBaseHeight = 112;
+  const dragThresholdPx = 4;
   const quotaCacheKey = "codex-quota-v2:last-quota";
   const previewParams =
     typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search);
@@ -49,6 +51,8 @@
   let autostart = false;
   let quota: QuotaSnapshot | null = previewEnabled ? sampleQuota() : readCachedQuota();
   let lastGoodQuota: QuotaSnapshot | null = quota;
+  let displayQuota: QuotaSnapshot | null = quota;
+  let lastRefreshText = quota?.updatedAt || "--:--:--";
   let status: Status = previewEnabled ? "ready" : quota ? "stale" : "loading";
   let isRefreshing = false;
   let errorText = "";
@@ -58,12 +62,21 @@
   let widthScale = 1;
   let heightScale = 1;
   let refreshTimer: number | undefined;
+  let cacheSyncTimer: number | undefined;
   let appWindow: CurrentWindow | null = null;
+  let pendingPointer:
+    | {
+        id: number;
+        x: number;
+        y: number;
+      }
+    | null = null;
 
-  $: displayQuota = hasUsableQuota(quota) ? quota : lastGoodQuota;
   $: quotaWindows = makeQuotaWindows(displayQuota);
   $: isSmall = mode === "small";
   $: hasQuota = hasUsableQuota(displayQuota);
+  $: subtitleText = makeSubtitle(displayQuota, lastRefreshText);
+  $: statusMessage = makeStatusText(status, errorText, displayQuota, lastRefreshText);
   $: scaleStyle = `--ui-scale:${uiScale.toFixed(3)};--width-scale:${widthScale.toFixed(3)};--height-scale:${heightScale.toFixed(3)};`;
 
   onMount(() => {
@@ -98,6 +111,7 @@
     await hydrateWindowState();
     void refreshQuota();
     scheduleRefreshTimer();
+    scheduleCacheSyncTimer();
     void refreshAutostartState();
 
     const unlistenRefresh = await listenSafe("quota-refresh-requested", refreshQuota);
@@ -117,7 +131,9 @@
       const wasVisible = panelVisible;
       panelVisible = event.payload;
       scheduleRefreshTimer();
+      scheduleCacheSyncTimer();
       if (panelVisible && !wasVisible) {
+        void syncDisplayFromBackendCache();
         void refreshQuota();
       }
     });
@@ -125,6 +141,7 @@
 
     return () => {
       window.clearInterval(refreshTimer);
+      window.clearInterval(cacheSyncTimer);
       unlistenRefresh();
       unlistenMode();
       unlistenTopmost();
@@ -165,29 +182,54 @@
     refreshTimer = window.setInterval(refreshQuota, panelVisible ? visibleRefreshMs : hiddenRefreshMs);
   }
 
+  function scheduleCacheSyncTimer() {
+    window.clearInterval(cacheSyncTimer);
+    if (!panelVisible) return;
+    cacheSyncTimer = window.setInterval(syncDisplayFromBackendCache, visibleCacheSyncMs);
+  }
+
   async function refreshQuota() {
     if (isRefreshing) return;
     isRefreshing = true;
+    if (!hasUsableQuota(displayQuota)) {
+      status = "loading";
+    }
     try {
       const nextQuota = await withTimeout(
         invoke<QuotaSnapshot>("read_quota"),
         invokeTimeoutMs,
         "Codex 响应超时，请稍后刷新"
       );
-      const normalized = normalizeQuota(nextQuota);
+      const normalized = {
+        ...normalizeQuota(nextQuota),
+        updatedAt: currentTimeText()
+      };
       rememberQuota(normalized, "ready");
       errorText = "";
       await updateTrayQuota("ready", normalized);
     } catch (error) {
       errorText = friendlyError(error);
-      if (!hasUsableQuota(quota) && hasUsableQuota(lastGoodQuota)) {
-        quota = lastGoodQuota;
-      }
-      const fallbackQuota = displayQuota;
-      status = fallbackQuota ? "stale" : "error";
-      await updateTrayQuota(status, fallbackQuota);
+      quota = null;
+      displayQuota = null;
+      status = "error";
+      await updateTrayQuota("error", null);
     } finally {
       isRefreshing = false;
+    }
+  }
+
+  async function syncDisplayFromBackendCache() {
+    if (previewEnabled || isRefreshing) return;
+    try {
+      const cached = await invoke<RawQuota | null>("read_cached_quota");
+      if (!cached || !hasQuotaPercentages(cached)) return;
+      const normalized = normalizeQuota(cached);
+      if (quotaSnapshotKey(normalized) === quotaSnapshotKey(displayQuota) && normalized.updatedAt === lastRefreshText) {
+        return;
+      }
+      rememberQuota(normalized, normalized.status === "ready" ? "ready" : "stale");
+    } catch {
+      // Live refresh remains the authoritative path; cache sync only keeps visible UI current.
     }
   }
 
@@ -302,9 +344,21 @@
     };
   }
 
+  function currentTimeText() {
+    return new Date().toLocaleTimeString("zh-CN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false
+    });
+  }
+
   function rememberQuota(nextQuota: QuotaSnapshot, nextStatus: Status) {
+    const refreshText = nextQuota.updatedAt || currentTimeText();
     quota = nextQuota;
     lastGoodQuota = nextQuota;
+    displayQuota = nextQuota;
+    lastRefreshText = refreshText;
     status = nextStatus;
     writeCachedQuota(nextQuota);
   }
@@ -314,12 +368,7 @@
     if (trimmed && trimmed !== "--:--:--") {
       return trimmed;
     }
-    return new Date().toLocaleTimeString("zh-CN", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false
-    });
+    return currentTimeText();
   }
 
   function normalizePercent(value?: number | null) {
@@ -346,19 +395,29 @@
   }
 
   async function hydrateQuotaCache() {
+    let hydrated = false;
     try {
       const cached = await invoke<RawQuota | null>("read_cached_quota");
-      if (!cached || !hasQuotaPercentages(cached)) return;
-      const normalized = normalizeQuota(cached);
-      if (!hasUsableQuota(lastGoodQuota)) {
-        lastGoodQuota = normalized;
+      if (cached && hasQuotaPercentages(cached)) {
+        const normalized = normalizeQuota(cached);
+        if (!hasUsableQuota(lastGoodQuota)) {
+          lastGoodQuota = normalized;
+        }
+        if (!hasUsableQuota(quota) || status !== "ready") {
+          rememberQuota(normalized, "stale");
+          await updateTrayQuota("stale", normalized);
+        }
+        hydrated = true;
       }
-      if (hasUsableQuota(quota) && status === "ready") return;
-      rememberQuota(normalized, "stale");
-      await updateTrayQuota("stale", normalized);
     } catch {
       // Frontend localStorage remains available as a secondary cache.
     }
+
+    if (hydrated) return;
+    const cached = readCachedQuota();
+    if (!cached) return;
+    rememberQuota(cached, "stale");
+    await updateTrayQuota("stale", cached);
   }
 
   function writeCachedQuota(nextQuota: QuotaSnapshot) {
@@ -397,6 +456,19 @@
     return value;
   }
 
+  function quotaSnapshotKey(currentQuota: QuotaSnapshot | null) {
+    if (!currentQuota) return "";
+    return [
+      currentQuota.status,
+      currentQuota.limitName,
+      currentQuota.planType,
+      currentQuota.primaryRemaining,
+      currentQuota.primaryReset,
+      currentQuota.secondaryRemaining,
+      currentQuota.secondaryReset
+    ].join("|");
+  }
+
   function hasQuotaPercentages(raw: RawQuota) {
     return (
       readNumber(raw, "primaryRemaining", "primary_remaining") !== null &&
@@ -424,29 +496,36 @@
   }
 
   function compactSummaryText() {
+    if (status === "error") return "Codex: 暂时无法获取";
     if (hasUsableQuota(displayQuota)) return null;
-    if (status === "error") return "Codex: 读取失败";
     return "Codex: 正在读取";
   }
 
-  function subtitle() {
-    if (!displayQuota) return "Codex / pro --:--:--";
-    const plan = displayQuota.planType ? ` / ${displayQuota.planType}` : "";
-    return `${displayQuota.limitName || "Codex"}${plan} ${displayQuota.updatedAt || "--:--:--"}`;
+  function makeSubtitle(currentQuota: QuotaSnapshot | null, refreshText: string) {
+    const nextRefreshText = refreshText || "--:--:--";
+    if (!currentQuota) return `Codex ${nextRefreshText}`;
+    const plan = currentQuota.planType ? ` / ${currentQuota.planType}` : "";
+    return `${currentQuota.limitName || "Codex"}${plan} ${nextRefreshText}`;
   }
 
-  function statusText() {
-    if (status === "error") return `读取失败: ${errorText}`;
-    if (status === "stale") {
-      return errorText ? `显示上次数据: ${errorText}` : `显示上次数据 ${displayQuota?.updatedAt || "--:--:--"}`;
+  function makeStatusText(
+    currentStatus: Status,
+    currentErrorText: string,
+    currentQuota: QuotaSnapshot | null,
+    refreshText: string
+  ) {
+    const nextRefreshText = refreshText || "--:--:--";
+    if (currentStatus === "error") return `暂时无法获取: ${currentErrorText || "未知原因"}`;
+    if (currentStatus === "stale") {
+      return currentErrorText ? `显示上次数据: ${currentErrorText}` : `显示上次数据 ${nextRefreshText}`;
     }
-    if (!displayQuota) return "正在读取";
-    return `上次刷新 ${displayQuota.updatedAt}`;
+    if (!currentQuota) return "正在读取";
+    return `上次刷新 ${nextRefreshText}`;
   }
 
   function friendlyError(error: unknown) {
     const raw = String(error || "").trim();
-    if (!raw) return "读取失败";
+    if (!raw) return "未知原因";
 
     const lower = raw.toLowerCase();
     if (lower.includes("cannot find codex cli") || lower.includes("codex.exe")) {
@@ -455,7 +534,30 @@
     if (lower.includes("cannot start codex app-server")) {
       return "无法启动 Codex app-server，请确认 Codex 已安装且可正常打开";
     }
-    if (lower.includes("timed out") || lower.includes("响应超时")) {
+    if (
+      lower.includes("network") ||
+      lower.includes("internet") ||
+      lower.includes("dns") ||
+      lower.includes("offline") ||
+      lower.includes("connection") ||
+      lower.includes("连接") ||
+      lower.includes("网络")
+    ) {
+      return "网络未连接或连接不稳定，请检查网络后重试";
+    }
+    if (
+      lower.includes("unauthorized") ||
+      lower.includes("forbidden") ||
+      lower.includes("sign in") ||
+      lower.includes("login") ||
+      lower.includes("logged in") ||
+      lower.includes("auth") ||
+      lower.includes("认证") ||
+      lower.includes("登录")
+    ) {
+      return "Codex 账号未登录或登录状态已过期，请重新登录 Codex";
+    }
+    if (lower.includes("timed out") || lower.includes("timeout") || lower.includes("响应超时")) {
       return "Codex 响应超时，请稍后刷新";
     }
     if (lower.includes("no rate limit data") || lower.includes("returned no rate limit")) {
@@ -498,18 +600,40 @@
     }
   }
 
-  function startDrag(event: MouseEvent) {
+  function startPointer(event: PointerEvent) {
     if (event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (target.closest("button") || target.closest(".resize-handle")) return;
-    if (event.detail >= 2) {
-      event.preventDefault();
-      void hidePanel();
-      return;
-    }
-    if (!appWindow) return;
     event.preventDefault();
+    pendingPointer = {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY
+    };
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+  }
+
+  function movePointer(event: PointerEvent) {
+    if (!pendingPointer || pendingPointer.id !== event.pointerId) return;
+    const moved =
+      Math.abs(event.clientX - pendingPointer.x) > dragThresholdPx ||
+      Math.abs(event.clientY - pendingPointer.y) > dragThresholdPx;
+    if (!moved) return;
+
+    pendingPointer = null;
+    if (!appWindow) return;
     void appWindow.startDragging().finally(rememberWindowState);
+  }
+
+  function finishPointer(event: PointerEvent) {
+    if (!pendingPointer || pendingPointer.id !== event.pointerId) return;
+    pendingPointer = null;
+    void hidePanel();
+  }
+
+  function cancelPointer(event: PointerEvent) {
+    if (!pendingPointer || pendingPointer.id !== event.pointerId) return;
+    pendingPointer = null;
   }
 
   function startResize(event: PointerEvent) {
@@ -530,7 +654,14 @@
 <svelte:window on:contextmenu={showContextMenu} />
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<main class={`shell ${isSmall ? "small-mode" : "large-mode"}`} style={scaleStyle} on:mousedown={startDrag}>
+<main
+  class={`shell ${isSmall ? "small-mode" : "large-mode"}`}
+  style={scaleStyle}
+  on:pointerdown={startPointer}
+  on:pointermove={movePointer}
+  on:pointerup={finishPointer}
+  on:pointercancel={cancelPointer}
+>
   <section class="compact-row">
     <span class="compact-summary">
       {#if compactSummaryText()}
@@ -541,12 +672,12 @@
       {/if}
     </span>
     <button class="compact-large" title="打开大窗" aria-label="打开大窗" on:click={() => switchMode("large")}>
-      <svg class="icon window-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <svg class="icon action-icon window-icon" viewBox="0 0 24 24" aria-hidden="true">
         <rect x="7" y="7" width="10" height="10" rx="0.5"></rect>
       </svg>
     </button>
     <button class:spinning={isRefreshing} class="compact-refresh" title="立即刷新" aria-label="立即刷新" on:click={refreshQuota}>
-      <svg class="icon refresh-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <svg class="icon action-icon refresh-icon" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
         <path d="M21 3v6h-6"></path>
       </svg>
@@ -555,22 +686,22 @@
 
   <header class="topbar">
     <div class="title-area">
-      <p>{subtitle()}</p>
+      <p>{subtitleText}</p>
     </div>
     <div class="window-actions">
       <button title="切换到小窗" aria-label="切换到小窗" on:click={() => switchMode("small")}>
-        <svg class="icon window-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <svg class="icon action-icon window-icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M8 7h9v9H8z"></path>
           <path d="M5 10h9v9H5z"></path>
         </svg>
       </button>
       <button title={alwaysOnTop ? "取消置顶" : "置顶"} aria-label={alwaysOnTop ? "取消置顶" : "置顶"} on:click={toggleTopmost}>
-        <svg class={`icon ${alwaysOnTop ? "icon-solid" : ""}`} viewBox="0 0 24 24" aria-hidden="true">
+        <svg class={`icon action-icon pin-icon ${alwaysOnTop ? "icon-solid" : ""}`} viewBox="0 0 24 24" aria-hidden="true">
           <path d="M14 3l7 7-2 2-2-2-4 4v5l-1 1-4-4-5 5-1-1 5-5-4-4 1-1h5l4-4-2-2 2-2z"></path>
         </svg>
       </button>
       <button class:spinning={isRefreshing} title="立即刷新" aria-label="立即刷新" on:click={refreshQuota}>
-        <svg class="icon refresh-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <svg class="icon action-icon refresh-icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
           <path d="M21 3v6h-6"></path>
         </svg>
@@ -597,13 +728,19 @@
         </article>
       {/each}
     {:else}
-      <div class="empty">{errorText || "正在连接 Codex app-server"}</div>
+      <div class="empty">
+        {#if status === "error"}
+          暂时无法获取：{errorText || "未知原因"}
+        {:else}
+          正在连接 Codex app-server
+        {/if}
+      </div>
     {/if}
   </section>
 
   <footer class="footer">
     <span class={`dot ${status}`}></span>
-    <span>{statusText()}</span>
+    <span>{statusMessage}</span>
   </footer>
   <div class="resize-handle" aria-hidden="true" on:pointerdown={startResize}></div>
 </main>
