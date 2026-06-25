@@ -8,11 +8,8 @@ use tauri::{AppHandle, Emitter, Manager};
 const TRAY_ID: &str = "main";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTO_REFRESH_PRESETS: &[(u32, &str)] = &[
-    (5, "5s"),
-    (10, "10s"),
-    (20, "20s"),
     (30, "30s"),
-    (60, "60s"),
+    (60, "1min"),
     (300, "5min"),
     (600, "10min"),
     (1200, "20min"),
@@ -42,11 +39,8 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         None::<&str>,
     )?;
     let current_auto_refresh_seconds = auto_refresh_seconds(app);
-    let auto_refresh_5s = auto_refresh_item(app, 5, "5s", current_auto_refresh_seconds)?;
-    let auto_refresh_10s = auto_refresh_item(app, 10, "10s", current_auto_refresh_seconds)?;
-    let auto_refresh_20s = auto_refresh_item(app, 20, "20s", current_auto_refresh_seconds)?;
     let auto_refresh_30s = auto_refresh_item(app, 30, "30s", current_auto_refresh_seconds)?;
-    let auto_refresh_60s = auto_refresh_item(app, 60, "60s", current_auto_refresh_seconds)?;
+    let auto_refresh_1min = auto_refresh_item(app, 60, "1min", current_auto_refresh_seconds)?;
     let auto_refresh_5min = auto_refresh_item(app, 300, "5min", current_auto_refresh_seconds)?;
     let auto_refresh_10min = auto_refresh_item(app, 600, "10min", current_auto_refresh_seconds)?;
     let auto_refresh_20min = auto_refresh_item(app, 1200, "20min", current_auto_refresh_seconds)?;
@@ -57,11 +51,8 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         format!("自动刷新 {}", auto_refresh_label(current_auto_refresh_seconds)),
         true,
         &[
-            &auto_refresh_5s,
-            &auto_refresh_10s,
-            &auto_refresh_20s,
             &auto_refresh_30s,
-            &auto_refresh_60s,
+            &auto_refresh_1min,
             &auto_refresh_5min,
             &auto_refresh_10min,
             &auto_refresh_20min,

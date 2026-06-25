@@ -33,7 +33,7 @@
   type RawQuota = Partial<QuotaSnapshot> & Record<string, unknown>;
 
   const defaultAutoRefreshSeconds = 30;
-  const autoRefreshPresets = [5, 10, 20, 30, 60, 300, 600, 1200, 1800, 3600];
+  const autoRefreshPresets = [30, 60, 300, 600, 1200, 1800, 3600];
   const visibleCacheSyncMs = 5_000;
   const invokeTimeoutMs = 35_000;
   const largeBaseWidth = 200;
@@ -54,6 +54,7 @@
   let lastGoodQuota: QuotaSnapshot | null = quota;
   let displayQuota: QuotaSnapshot | null = quota;
   let lastRefreshText = quota?.updatedAt || "--:--:--";
+  let blockedCacheRefreshText = "";
   let autoRefreshSeconds = readAutoRefreshSeconds();
   let status: Status = previewEnabled ? "ready" : quota ? "stale" : "loading";
   let isRefreshing = false;
@@ -216,8 +217,7 @@
       await updateTrayQuota("ready", normalized);
     } catch (error) {
       errorText = friendlyError(error);
-      quota = null;
-      displayQuota = null;
+      blockedCacheRefreshText = lastRefreshText;
       status = "error";
       await updateTrayQuota("error", null);
     } finally {
@@ -231,6 +231,9 @@
       const cached = await invoke<RawQuota | null>("read_cached_quota");
       if (!cached || !hasQuotaPercentages(cached)) return;
       const normalized = normalizeQuota(cached);
+      if (status === "error" && normalized.updatedAt === blockedCacheRefreshText) {
+        return;
+      }
       if (quotaSnapshotKey(normalized) === quotaSnapshotKey(displayQuota) && normalized.updatedAt === lastRefreshText) {
         return;
       }
@@ -383,6 +386,7 @@
     lastGoodQuota = nextQuota;
     displayQuota = nextQuota;
     lastRefreshText = refreshText;
+    blockedCacheRefreshText = "";
     status = nextStatus;
     writeCachedQuota(nextQuota);
   }
@@ -550,7 +554,7 @@
   }
 
   function compactSummaryText() {
-    if (status === "error") return "Codex: 暂时无法获取";
+    if (status === "error") return "Codex: 刷新失败";
     if (hasUsableQuota(displayQuota)) return null;
     return "Codex: 正在读取";
   }
@@ -569,6 +573,9 @@
     refreshText: string
   ) {
     const nextRefreshText = refreshText || "--:--:--";
+    if (currentStatus === "error" && currentQuota) {
+      return `刷新失败，显示上次数据: ${currentErrorText || "未知原因"}`;
+    }
     if (currentStatus === "error") return `暂时无法获取: ${currentErrorText || "未知原因"}`;
     if (currentStatus === "stale") {
       return currentErrorText ? `显示上次数据: ${currentErrorText}` : `显示上次数据 ${nextRefreshText}`;
