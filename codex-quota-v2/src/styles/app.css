@@ -60,7 +60,6 @@ select {
   border: 0;
   border-radius: 12px;
   box-shadow: none;
-  backdrop-filter: blur(16px);
   cursor: default;
   user-select: none;
 }
