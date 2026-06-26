@@ -110,22 +110,6 @@ function Set-ProjectVersion {
       Write-Utf8File -Path $docPath -Text $docText
     }
   }
-
-  $repoRoot = Resolve-Path (Join-Path $ProjectRoot "..")
-  $gitignorePath = Join-Path $repoRoot ".gitignore"
-  if (Test-Path -LiteralPath $gitignorePath) {
-    $gitignoreText = Get-Content -LiteralPath $gitignorePath -Raw -Encoding UTF8
-    $gitignoreText = [regex]::Replace(
-      $gitignoreText,
-      '(?m)^!Codex Quota Monitor [^\r\n]+ (Portable|Setup)\.exe\r?$',
-      ''
-    )
-    $gitignoreText = $gitignoreText.TrimEnd() + [Environment]::NewLine + @"
-!Codex Quota Monitor $NewVersion Portable.exe
-!Codex Quota Monitor $NewVersion Setup.exe
-"@
-    Write-Utf8File -Path $gitignorePath -Text ($gitignoreText.TrimEnd() + [Environment]::NewLine)
-  }
 }
 
 function Invoke-ReleaseVersionPrompt {

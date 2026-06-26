@@ -26,26 +26,12 @@ dev-*.log
 
 # Packaged binaries and archives
 *.exe
-!Codex Quota Monitor 2.2.5 Portable.exe
-!Codex Quota Monitor 2.2.5 Setup.exe
 *.msi
 *.zip
 *.7z
-
-# Local project notes
-docs/
 
 # OS/editor noise
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
-
-# Legacy local-only V2 convenience docs/scripts
-codex-quota-v2/README.md
-codex-quota-v2/发布说明.md
-codex-quota-v2/一键发布便携版.cmd
-codex-quota-v2/一键启动开发版.cmd
-codex-quota-v2/一键打包便携版EXE.cmd
-codex-quota-v2/一键打包正式版.cmd
-codex-quota-v2/一键验证发布包.cmd

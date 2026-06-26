@@ -43,6 +43,12 @@ if ($oldPackages) {
   }
 }
 
+Write-Host ""
+Write-Host "正在加入当前版本发布包到 Git 索引："
+Write-Host $repoPortable
+Write-Host $repoSetup
+git -C $repoRoot add -f -- (Split-Path -Leaf $repoPortable) (Split-Path -Leaf $repoSetup)
+
 $releaseNote = Join-Path $projectRoot "发布说明.md"
 $outDir = Join-Path $projectRoot "dist-portable"
 if (Test-Path -LiteralPath $releaseNote) {
