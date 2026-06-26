@@ -60,12 +60,20 @@ struct TrayVisualState {
     secondary_remaining: Mutex<Option<i64>>,
     status: Mutex<String>,
     update_available: Mutex<bool>,
+    update_checked: Mutex<bool>,
 }
 
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let small = MenuItem::with_id(app, "small", "打开小窗", true, None::<&str>)?;
     let large = MenuItem::with_id(app, "large", "打开大窗", true, None::<&str>)?;
-    let topmost = MenuItem::with_id(app, "topmost", "置顶/取消置顶", true, None::<&str>)?;
+    let topmost = CheckMenuItem::with_id(
+        app,
+        "topmost",
+        "置顶窗口",
+        true,
+        window::get_state(app).always_on_top,
+        None::<&str>,
+    )?;
     let autostart = CheckMenuItem::with_id(
         app,
         "autostart",
@@ -108,7 +116,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let color_white = color_scheme_item(app, "white", "白", &current_color_scheme)?;
     let color_menu = Submenu::with_items(
         app,
-        format!("更换配色 {}", color_scheme_label(&current_color_scheme)),
+        format!("主题色：{}", color_scheme_label(&current_color_scheme)),
         true,
         &[
             &color_red,
@@ -158,25 +166,16 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &opacity_10,
         ],
     )?;
-    let check_update = MenuItem::with_id(
-        app,
-        "check-update",
-        if update_available(app) {
-            "更新到最新版本"
-        } else {
-            "检查更新"
-        },
-        true,
-        None::<&str>,
-    )?;
+    let update_available = update_available(app);
+    let version_label = if update_available {
+        "更新到最新版本".to_string()
+    } else if update_checked(app) {
+        format!("版本 {}（最新）", display_version())
+    } else {
+        format!("版本 {}", display_version())
+    };
     let restart = MenuItem::with_id(app, "restart", "重启", true, None::<&str>)?;
-    let version = MenuItem::with_id(
-        app,
-        "version",
-        format!("版本 {}", display_version()),
-        false,
-        None::<&str>,
-    )?;
+    let version = MenuItem::with_id(app, "version", version_label, true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
     let separator_1 = PredefinedMenuItem::separator(app)?;
     let separator_2 = PredefinedMenuItem::separator(app)?;
@@ -195,7 +194,6 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &opacity_menu,
             &separator_2,
             &auto_refresh,
-            &check_update,
             &separator_3,
             &autostart,
             &restart,
@@ -274,8 +272,18 @@ pub fn set_update_available(app: &AppHandle, available: bool) -> tauri::Result<(
         if let Ok(mut current) = state.update_available.lock() {
             *current = available;
         }
+        if let Ok(mut current) = state.update_checked.lock() {
+            *current = true;
+        }
         render_tray_state(app, &state)?;
     }
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        tray.set_menu(Some(build_menu(app)?))?;
+    }
+    Ok(())
+}
+
+pub fn refresh_menu(app: &AppHandle) -> tauri::Result<()> {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         tray.set_menu(Some(build_menu(app)?))?;
     }
@@ -307,6 +315,7 @@ pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
         secondary_remaining: Mutex::new(None),
         status: Mutex::new("idle".into()),
         update_available: Mutex::new(false),
+        update_checked: Mutex::new(false),
     });
 
     let menu = build_menu(app)?;
@@ -325,6 +334,7 @@ pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
             }
             "topmost" => {
                 let _ = window::toggle_topmost(app);
+                let _ = refresh_menu(app);
             }
             "autostart" => {
                 let _ = app.emit("toggle-autostart-requested", ());
@@ -358,7 +368,7 @@ pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
                     let _ = app.emit("opacity-changed", next_opacity);
                 }
             }
-            "check-update" => {
+            "version" => {
                 if update_available(app) {
                     let _ = window::show_panel(app, "large");
                     let _ = app.emit("update-download-requested", ());
@@ -455,6 +465,18 @@ fn update_available(app: &AppHandle) -> bool {
                 .lock()
                 .ok()
                 .map(|update_available| *update_available)
+        })
+        .unwrap_or(false)
+}
+
+fn update_checked(app: &AppHandle) -> bool {
+    app.try_state::<TrayVisualState>()
+        .and_then(|state| {
+            state
+                .update_checked
+                .lock()
+                .ok()
+                .map(|update_checked| *update_checked)
         })
         .unwrap_or(false)
 }

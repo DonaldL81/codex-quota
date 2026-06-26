@@ -1140,6 +1140,10 @@
     {/if}
   </section>
 
+  {#if status === "error" && quotaWindows.length}
+    <div class="status-overlay">暂时无法获取，当前显示上次额度</div>
+  {/if}
+
   <footer class="footer">
     <span class={`dot ${status}`}></span>
     <span>{statusMessage}</span>

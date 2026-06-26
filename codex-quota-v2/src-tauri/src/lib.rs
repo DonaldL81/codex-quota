@@ -33,7 +33,9 @@ fn hide_panel(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn toggle_topmost(app: AppHandle) -> Result<bool, String> {
-    window::toggle_topmost(&app).map_err(|error| error.to_string())
+    let next = window::toggle_topmost(&app).map_err(|error| error.to_string())?;
+    tray::refresh_menu(&app).map_err(|error| error.to_string())?;
+    Ok(next)
 }
 
 #[tauri::command]

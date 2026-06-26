@@ -112,6 +112,52 @@ function Set-ProjectVersion {
   }
 }
 
+function Read-VersionPromptWithTimeout {
+  param(
+    [Parameter(Mandatory = $true)][string]$Prompt,
+    [int]$TimeoutSeconds = 10
+  )
+
+  Write-Host $Prompt
+  Write-Host "请在 $TimeoutSeconds 秒内输入并回车；超时默认保持当前版本。"
+
+  $buffer = ""
+  $deadline = [DateTime]::Now.AddSeconds($TimeoutSeconds)
+  while ([DateTime]::Now -lt $deadline) {
+    $remaining = [Math]::Max(0, [int][Math]::Ceiling(($deadline - [DateTime]::Now).TotalSeconds))
+    Write-Host -NoNewline ("`r剩余 {0}s > {1}" -f $remaining, $buffer)
+
+    try {
+      while ([Console]::KeyAvailable) {
+        $key = [Console]::ReadKey($true)
+        if ($key.Key -eq [ConsoleKey]::Enter) {
+          Write-Host ""
+          return $buffer
+        }
+        if ($key.Key -eq [ConsoleKey]::Backspace) {
+          if ($buffer.Length -gt 0) {
+            $buffer = $buffer.Substring(0, $buffer.Length - 1)
+          }
+          continue
+        }
+        if (-not [char]::IsControl($key.KeyChar)) {
+          $buffer += $key.KeyChar
+        }
+      }
+    } catch {
+      Write-Host ""
+      Write-Host "当前终端不支持倒计时输入，默认保持当前版本。"
+      return ""
+    }
+
+    Start-Sleep -Milliseconds 100
+  }
+
+  Write-Host ""
+  Write-Host "等待超时，保持当前版本。"
+  return ""
+}
+
 function Invoke-ReleaseVersionPrompt {
   param(
     [Parameter(Mandatory = $true)][string]$ProjectRoot,
@@ -126,7 +172,7 @@ function Invoke-ReleaseVersionPrompt {
   if ($BumpPatch) {
     $shouldBump = $true
   } elseif (-not $NoPrompt) {
-    $inputValue = Read-Host "输入 1 自动升级 patch 版本；直接回车或输入其他内容保持当前版本"
+    $inputValue = Read-VersionPromptWithTimeout -Prompt "输入 1 自动升级 patch 版本；直接回车或输入其他内容保持当前版本" -TimeoutSeconds 10
     $shouldBump = $inputValue -eq "1"
   }
 

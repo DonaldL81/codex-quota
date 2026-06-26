@@ -272,8 +272,9 @@ button:active {
 }
 
 .refresh-icon {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
+  stroke-width: 2.2;
   transform-box: view-box;
   transform-origin: 50% 50%;
 }
@@ -482,6 +483,24 @@ button:active {
   display: none;
 }
 
+.status-overlay {
+  position: absolute;
+  right: clamp(10px, calc(10px * var(--width-scale)), 15px);
+  bottom: clamp(5px, calc(5px * var(--height-scale)), 9px);
+  left: clamp(10px, calc(10px * var(--width-scale)), 15px);
+  z-index: 15;
+  overflow: hidden;
+  color: #d88900;
+  font-size: clamp(8.5px, calc(8.5px * var(--ui-scale)), 11px);
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+  text-align: center;
+  text-overflow: ellipsis;
+  text-shadow: 0 0 7px rgba(216, 137, 0, 0.28);
+  white-space: nowrap;
+}
+
 .empty {
   display: block;
   padding: 16px 0;
@@ -531,6 +550,7 @@ button:active {
 .small-mode .topbar,
 .small-mode .update-panel,
 .small-mode .quota-list,
+.small-mode .status-overlay,
 .small-mode .footer {
   display: none;
 }
