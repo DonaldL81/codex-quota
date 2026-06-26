@@ -10,7 +10,7 @@ Codex Skill 使用提示词：
 安装 https://github.com/DonaldL81/codex-quota/tree/main/skills/codex-quota-skill
 ```
 
-默认会下载并运行单文件免安装包。如需安装包，可以对 Codex 说：
+默认会安装到当前用户程序目录，创建桌面快捷方式，并启动最新版。如需安装包，可以对 Codex 说：
 
 ```text
 使用 https://github.com/DonaldL81/codex-quota/tree/main/skills/codex-quota-skill 下载安装版

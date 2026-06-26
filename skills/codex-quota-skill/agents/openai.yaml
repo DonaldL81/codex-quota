@@ -1,4 +1,4 @@
 interface:
   display_name: "Codex Quota Skill"
-  short_description: "Download and run the latest Codex Quota Monitor for Windows."
-  default_prompt: "Download and run the latest Codex Quota Monitor portable version."
+  short_description: "Install, open, or update Codex Quota Monitor for Windows."
+  default_prompt: "Install and open the latest Codex Quota Monitor portable version."
