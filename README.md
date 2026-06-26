@@ -8,11 +8,11 @@
 
 大窗模式：
 
-<img src="codex-quota-v2/assets/screenshots/large-window.png" alt="大窗模式" width="361">
+<img src="codex-quota-v2/assets/screenshots/large-window.png" alt="大窗模式" width="700">
 
 小窗模式：
 
-<img src="codex-quota-v2/assets/screenshots/small-window.png" alt="小窗模式" width="258">
+<img src="codex-quota-v2/assets/screenshots/small-window.png" alt="小窗模式" width="700">
 
 ## 特点
 
