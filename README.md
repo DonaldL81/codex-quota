@@ -4,6 +4,18 @@
 
 当前版本：`2.2.6`
 
+Codex Skill 使用提示词：
+
+```text
+安装 https://github.com/DonaldL81/codex-quota/tree/main/skills/codex-quota-skill
+```
+
+默认会下载并运行单文件免安装包。如需安装包，可以对 Codex 说：
+
+```text
+使用 https://github.com/DonaldL81/codex-quota/tree/main/skills/codex-quota-skill 下载安装版
+```
+
 ## 界面预览
 
 大窗模式：
