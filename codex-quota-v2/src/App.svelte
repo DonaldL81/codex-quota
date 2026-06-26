@@ -4,6 +4,7 @@
   import { listen, type Event as TauriEvent } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
+  import { save } from "@tauri-apps/plugin-dialog";
 
   type QuotaSnapshot = {
     status: string;
@@ -28,12 +29,35 @@
     visible: boolean;
   };
 
+  type UpdateInfo = {
+    available: boolean;
+    currentVersion: string;
+    latestVersion: string;
+    releaseUrl: string;
+    portableAssetUrl?: string | null;
+    setupAssetUrl?: string | null;
+    portableFileName?: string | null;
+    setupFileName?: string | null;
+    packageKind: "portable" | "installer";
+    message: string;
+  };
+
+  type UpdateProgress = {
+    phase: "downloading" | "finished" | "installing" | string;
+    percent: number;
+    downloaded: number;
+    total?: number | null;
+    message: string;
+  };
+
   type Status = "loading" | "ready" | "stale" | "error";
+  type ColorScheme = "red" | "orange" | "yellow" | "green" | "cyan" | "blue" | "purple" | "black" | "white";
   type CurrentWindow = ReturnType<typeof getCurrentWindow>;
   type RawQuota = Partial<QuotaSnapshot> & Record<string, unknown>;
 
   const defaultAutoRefreshSeconds = 30;
   const autoRefreshPresets = [30, 60, 300, 600, 1200, 1800, 3600];
+  const colorSchemes: ColorScheme[] = ["red", "orange", "yellow", "green", "cyan", "blue", "purple", "black", "white"];
   const visibleCacheSyncMs = 5_000;
   const invokeTimeoutMs = 35_000;
   const largeBaseWidth = 200;
@@ -41,6 +65,8 @@
   const dragThresholdPx = 4;
   const quotaCacheKey = "codex-quota-v2:last-quota";
   const autoRefreshCacheKey = "codex-quota-v2:auto-refresh-seconds";
+  const colorSchemeCacheKey = "codex-quota-v2:color-scheme";
+  const darkModeCacheKey = "codex-quota-v2:dark-mode";
   const previewParams =
     typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search);
   const previewEnabled = previewParams.has("mock");
@@ -56,9 +82,17 @@
   let lastRefreshText = quota?.updatedAt || "--:--:--";
   let blockedCacheRefreshText = "";
   let autoRefreshSeconds = readAutoRefreshSeconds();
+  let colorScheme = readColorScheme();
+  let darkMode = readDarkMode();
   let status: Status = previewEnabled ? "ready" : quota ? "stale" : "loading";
   let isRefreshing = false;
   let errorText = "";
+  let updateInfo: UpdateInfo | null = null;
+  let updateChecking = false;
+  let updateDownloading = false;
+  let updateProgress: UpdateProgress | null = null;
+  let updateErrorText = "";
+  let updateSavedPath = "";
   let toast = "";
   let toastTimer: number | undefined;
   let uiScale = 1;
@@ -80,7 +114,10 @@
   $: hasQuota = hasUsableQuota(displayQuota);
   $: subtitleText = makeSubtitle(displayQuota, lastRefreshText);
   $: statusMessage = makeStatusText(status, errorText, displayQuota, lastRefreshText);
+  $: updateVisible = !!updateInfo?.available || updateChecking || updateDownloading || !!updateErrorText || !!updateSavedPath;
+  $: updatePercent = clamp(Math.round(updateProgress?.percent ?? 0), 0, 100);
   $: scaleStyle = `--ui-scale:${uiScale.toFixed(3)};--width-scale:${widthScale.toFixed(3)};--height-scale:${heightScale.toFixed(3)};`;
+  $: shellClass = `shell ${isSmall ? "small-mode" : "large-mode"} color-${colorScheme} ${darkMode ? "dark-mode" : ""}`;
 
   onMount(() => {
     try {
@@ -117,10 +154,28 @@
     scheduleCacheSyncTimer();
     void refreshAutostartState();
     void syncAutoRefreshMenu();
+    void syncAppearanceMenu();
+    void checkForUpdates(false);
 
     const unlistenRefresh = await listenSafe("quota-refresh-requested", refreshQuota);
+    const unlistenUpdateCheck = await listenSafe("update-check-requested", () => {
+      void checkForUpdates(true);
+    });
+    const unlistenUpdateProgress = await listenSafe<UpdateProgress>("update-progress", (event) => {
+      updateProgress = event.payload;
+      updateDownloading = event.payload.phase === "downloading" || event.payload.phase === "installing";
+      if (event.payload.phase === "finished") {
+        updateDownloading = false;
+      }
+    });
     const unlistenAutoRefresh = await listenSafe<number>("auto-refresh-seconds-changed", (event) => {
       setAutoRefreshSeconds(event.payload);
+    });
+    const unlistenColorScheme = await listenSafe<ColorScheme>("color-scheme-changed", (event) => {
+      setColorScheme(event.payload);
+    });
+    const unlistenDarkMode = await listenSafe<boolean>("dark-mode-changed", (event) => {
+      setDarkMode(event.payload);
     });
     const unlistenMode = await listenSafe<string>("mode-changed", (event) => {
       mode = event.payload === "large" ? "large" : "small";
@@ -150,7 +205,11 @@
       window.clearInterval(refreshTimer);
       window.clearInterval(cacheSyncTimer);
       unlistenRefresh();
+      unlistenUpdateCheck();
+      unlistenUpdateProgress();
       unlistenAutoRefresh();
+      unlistenColorScheme();
+      unlistenDarkMode();
       unlistenMode();
       unlistenTopmost();
       unlistenVisibility();
@@ -274,6 +333,83 @@
     }
   }
 
+  async function setTrayUpdateAvailable(available: boolean) {
+    try {
+      await invoke("set_update_available", { available });
+    } catch {
+      // The in-window update state remains usable even if the tray badge cannot refresh.
+    }
+  }
+
+  async function checkForUpdates(manual: boolean) {
+    if (updateChecking || updateDownloading) return;
+    updateChecking = true;
+    updateErrorText = "";
+    try {
+      const nextInfo = await withTimeout(
+        invoke<UpdateInfo>("check_update"),
+        15_000,
+        "检查更新超时"
+      );
+      updateInfo = nextInfo;
+      await setTrayUpdateAvailable(nextInfo.available);
+      if (manual) {
+        showToast(nextInfo.message);
+      }
+    } catch (error) {
+      updateErrorText = friendlyUpdateError(error);
+      if (manual) showToast(updateErrorText);
+    } finally {
+      updateChecking = false;
+    }
+  }
+
+  async function startUpdateDownload() {
+    if (!updateInfo?.available || updateDownloading) return;
+    updateDownloading = true;
+    updateSavedPath = "";
+    updateErrorText = "";
+    updateProgress = {
+      phase: "downloading",
+      percent: 0,
+      downloaded: 0,
+      total: null,
+      message: "准备下载更新"
+    };
+
+    try {
+      if (updateInfo.packageKind === "portable") {
+        if (!updateInfo.portableAssetUrl) throw new Error("未找到便携版更新文件");
+        const target = await save({
+          defaultPath: updateInfo.portableFileName || `Codex Quota Monitor ${updateInfo.latestVersion} Portable.exe`,
+          filters: [{ name: "EXE", extensions: ["exe"] }]
+        });
+        if (!target) {
+          updateDownloading = false;
+          updateProgress = null;
+          return;
+        }
+        updateSavedPath = await invoke<string>("download_portable_update", {
+          url: updateInfo.portableAssetUrl,
+          savePath: target
+        });
+        showToast("便携版更新已保存");
+      } else {
+        if (!updateInfo.setupAssetUrl) throw new Error("未找到正式安装包更新文件");
+        await invoke<string>("download_installer_update", {
+          url: updateInfo.setupAssetUrl
+        });
+      }
+    } catch (error) {
+      updateErrorText = friendlyUpdateError(error);
+      showToast(updateErrorText);
+    } finally {
+      if (updateProgress?.phase !== "installing") {
+        updateDownloading = false;
+      }
+    }
+  }
+
   async function switchMode(nextMode: "small" | "large") {
     mode = nextMode;
     updateScale();
@@ -328,6 +464,17 @@
     }
   }
 
+  async function syncAppearanceMenu() {
+    try {
+      await invoke("set_appearance_menu_state", {
+        colorScheme,
+        darkMode
+      });
+    } catch {
+      // The menu check marks are a convenience; local UI state remains authoritative.
+    }
+  }
+
   async function setAutoRefreshSeconds(nextSeconds: number) {
     if (!isAutoRefreshPreset(nextSeconds)) return;
     autoRefreshSeconds = nextSeconds;
@@ -335,6 +482,19 @@
     scheduleRefreshTimer();
     await syncAutoRefreshMenu();
     showToast(`自动刷新 ${autoRefreshLabel(nextSeconds)}`);
+  }
+
+  async function setColorScheme(nextColorScheme: ColorScheme) {
+    if (!isColorScheme(nextColorScheme)) return;
+    colorScheme = nextColorScheme;
+    writeColorScheme(nextColorScheme);
+    await syncAppearanceMenu();
+  }
+
+  async function setDarkMode(nextDarkMode: boolean) {
+    darkMode = nextDarkMode;
+    writeDarkMode(nextDarkMode);
+    await syncAppearanceMenu();
   }
 
   function showToast(text: string) {
@@ -435,6 +595,26 @@
     return defaultAutoRefreshSeconds;
   }
 
+  function readColorScheme(): ColorScheme {
+    try {
+      const value = window.localStorage.getItem(colorSchemeCacheKey);
+      if (isColorScheme(value)) {
+        return value;
+      }
+    } catch {
+      // Fall back to the default color when storage is unavailable.
+    }
+    return "blue";
+  }
+
+  function readDarkMode() {
+    try {
+      return window.localStorage.getItem(darkModeCacheKey) === "1";
+    } catch {
+      return false;
+    }
+  }
+
   function writeAutoRefreshSeconds(seconds: number) {
     try {
       window.localStorage.setItem(autoRefreshCacheKey, String(seconds));
@@ -443,8 +623,28 @@
     }
   }
 
+  function writeColorScheme(nextColorScheme: ColorScheme) {
+    try {
+      window.localStorage.setItem(colorSchemeCacheKey, nextColorScheme);
+    } catch {
+      // The in-memory value still applies for this session.
+    }
+  }
+
+  function writeDarkMode(nextDarkMode: boolean) {
+    try {
+      window.localStorage.setItem(darkModeCacheKey, nextDarkMode ? "1" : "0");
+    } catch {
+      // The in-memory value still applies for this session.
+    }
+  }
+
   function isAutoRefreshPreset(seconds: number) {
     return Number.isInteger(seconds) && autoRefreshPresets.includes(seconds);
+  }
+
+  function isColorScheme(value: unknown): value is ColorScheme {
+    return typeof value === "string" && colorSchemes.includes(value as ColorScheme);
   }
 
   function autoRefreshLabel(seconds: number) {
@@ -554,9 +754,47 @@
   }
 
   function compactSummaryText() {
+    if (updateDownloading) return updateProgressLine();
     if (status === "error") return "Codex: 刷新失败";
     if (hasUsableQuota(displayQuota)) return null;
     return "Codex: 正在读取";
+  }
+
+  function updateProgressLine() {
+    const percent = updatePercent;
+    const width = 16;
+    const arrowIndex = Math.min(width - 1, Math.max(0, Math.round((percent / 100) * (width - 1))));
+    const chars = Array.from({ length: width }, (_, index) => (index === arrowIndex ? ">" : "-"));
+    return `更新中：${chars.join("")} ${percent}%`;
+  }
+
+  function updateActionText() {
+    if (updateChecking) return "正在检查";
+    if (updateDownloading) return updateProgress?.message || "正在下载";
+    if (!updateInfo?.available) return "检查更新";
+    if (updateInfo.packageKind === "portable") return "下载并保存";
+    return "下载并更新";
+  }
+
+  function updateDetailText() {
+    if (updateErrorText) return updateErrorText;
+    if (updateSavedPath) return `已保存：${updateSavedPath}`;
+    if (updateDownloading) return updateProgressLine();
+    if (updateInfo?.available) return `发现新版本 ${updateInfo.latestVersion}`;
+    if (updateInfo) return updateInfo.message;
+    if (updateChecking) return "正在检查更新";
+    return "";
+  }
+
+  function friendlyUpdateError(error: unknown) {
+    const raw = String(error || "").trim();
+    if (!raw) return "更新失败：未知原因";
+    const lower = raw.toLowerCase();
+    if (lower.includes("timeout") || lower.includes("超时")) return "检查更新超时，请稍后重试";
+    if (lower.includes("network") || lower.includes("dns") || lower.includes("connection")) {
+      return "网络异常，无法检查或下载更新";
+    }
+    return raw;
   }
 
   function makeSubtitle(currentQuota: QuotaSnapshot | null, refreshText: string) {
@@ -716,7 +954,7 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <main
-  class={`shell ${isSmall ? "small-mode" : "large-mode"}`}
+  class={shellClass}
   style={scaleStyle}
   on:pointerdown={startPointer}
   on:pointermove={movePointer}
@@ -769,6 +1007,27 @@
       </button>
     </div>
   </header>
+
+  {#if updateVisible}
+    <section class="update-panel">
+      <div class="update-copy">
+        <strong>{updateActionText()}</strong>
+        <span>{updateDetailText()}</span>
+      </div>
+      <div class="update-meter">
+        <div class="update-meter-fill" style={`width:${updatePercent}%`}></div>
+      </div>
+      <button
+        class="update-button"
+        title={updateActionText()}
+        aria-label={updateActionText()}
+        disabled={updateChecking || updateDownloading}
+        on:click={updateInfo?.available ? startUpdateDownload : () => checkForUpdates(true)}
+      >
+        {updateInfo?.available ? (updateInfo.packageKind === "portable" ? "保存" : "更新") : "检查"}
+      </button>
+    </section>
+  {/if}
 
   <section class="quota-list">
     {#if quotaWindows.length}

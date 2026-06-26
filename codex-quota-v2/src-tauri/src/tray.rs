@@ -16,6 +16,17 @@ const AUTO_REFRESH_PRESETS: &[(u32, &str)] = &[
     (1800, "30min"),
     (3600, "60min"),
 ];
+const COLOR_SCHEMES: &[(&str, &str)] = &[
+    ("red", "红"),
+    ("orange", "橙"),
+    ("yellow", "黄"),
+    ("green", "绿"),
+    ("cyan", "青"),
+    ("blue", "蓝"),
+    ("purple", "紫"),
+    ("black", "黑"),
+    ("white", "白"),
+];
 type Color = [u8; 4];
 
 struct AutostartMenuState {
@@ -24,6 +35,18 @@ struct AutostartMenuState {
 
 struct AutoRefreshMenuState {
     seconds: Mutex<u32>,
+}
+
+struct AppearanceMenuState {
+    color_scheme: Mutex<String>,
+    dark_mode: Mutex<bool>,
+}
+
+struct TrayVisualState {
+    primary_remaining: Mutex<Option<i64>>,
+    secondary_remaining: Mutex<Option<i64>>,
+    status: Mutex<String>,
+    update_available: Mutex<bool>,
 }
 
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
@@ -60,6 +83,41 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &auto_refresh_60min,
         ],
     )?;
+    let current_color_scheme = color_scheme(app);
+    let color_red = color_scheme_item(app, "red", "红", &current_color_scheme)?;
+    let color_orange = color_scheme_item(app, "orange", "橙", &current_color_scheme)?;
+    let color_yellow = color_scheme_item(app, "yellow", "黄", &current_color_scheme)?;
+    let color_green = color_scheme_item(app, "green", "绿", &current_color_scheme)?;
+    let color_cyan = color_scheme_item(app, "cyan", "青", &current_color_scheme)?;
+    let color_blue = color_scheme_item(app, "blue", "蓝", &current_color_scheme)?;
+    let color_purple = color_scheme_item(app, "purple", "紫", &current_color_scheme)?;
+    let color_black = color_scheme_item(app, "black", "黑", &current_color_scheme)?;
+    let color_white = color_scheme_item(app, "white", "白", &current_color_scheme)?;
+    let color_menu = Submenu::with_items(
+        app,
+        format!("更换配色 {}", color_scheme_label(&current_color_scheme)),
+        true,
+        &[
+            &color_red,
+            &color_orange,
+            &color_yellow,
+            &color_green,
+            &color_cyan,
+            &color_blue,
+            &color_purple,
+            &color_black,
+            &color_white,
+        ],
+    )?;
+    let dark_mode = CheckMenuItem::with_id(
+        app,
+        "dark-mode",
+        "深色模式",
+        true,
+        dark_mode_checked(app),
+        None::<&str>,
+    )?;
+    let check_update = MenuItem::with_id(app, "check-update", "检查更新", true, None::<&str>)?;
     let restart = MenuItem::with_id(app, "restart", "重启", true, None::<&str>)?;
     let version = MenuItem::with_id(
         app,
@@ -81,7 +139,10 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &topmost,
             &separator_1,
             &autostart,
+            &color_menu,
+            &dark_mode,
             &auto_refresh,
+            &check_update,
             &restart,
             &separator_2,
             &version,
@@ -117,6 +178,34 @@ pub fn set_auto_refresh_seconds(app: &AppHandle, seconds: u32) -> tauri::Result<
     Ok(())
 }
 
+pub fn set_appearance(app: &AppHandle, color_scheme: &str, dark_mode: bool) -> tauri::Result<()> {
+    if let Some(state) = app.try_state::<AppearanceMenuState>() {
+        if is_color_scheme(color_scheme) {
+            if let Ok(mut current) = state.color_scheme.lock() {
+                *current = color_scheme.to_string();
+            }
+        }
+        if let Ok(mut current) = state.dark_mode.lock() {
+            *current = dark_mode;
+        }
+    }
+
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        tray.set_menu(Some(build_menu(app)?))?;
+    }
+    Ok(())
+}
+
+pub fn set_update_available(app: &AppHandle, available: bool) -> tauri::Result<()> {
+    if let Some(state) = app.try_state::<TrayVisualState>() {
+        if let Ok(mut current) = state.update_available.lock() {
+            *current = available;
+        }
+        render_tray_state(app, &state)?;
+    }
+    Ok(())
+}
+
 pub fn popup_context_menu(app: &AppHandle) -> tauri::Result<()> {
     if let Some(window) = app.get_webview_window("main") {
         let menu = build_menu(app)?;
@@ -132,6 +221,16 @@ pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
     app.manage(AutoRefreshMenuState {
         seconds: Mutex::new(30),
     });
+    app.manage(AppearanceMenuState {
+        color_scheme: Mutex::new("blue".into()),
+        dark_mode: Mutex::new(false),
+    });
+    app.manage(TrayVisualState {
+        primary_remaining: Mutex::new(None),
+        secondary_remaining: Mutex::new(None),
+        status: Mutex::new("idle".into()),
+        update_available: Mutex::new(false),
+    });
 
     let menu = build_menu(app)?;
 
@@ -139,7 +238,7 @@ pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .tooltip("Codex 额度")
-        .icon(create_tray_image(None, None, "idle"))
+        .icon(create_tray_image(None, None, "idle", false))
         .on_menu_event(|app, event| match event.id().as_ref() {
             "small" => {
                 let _ = window::show_panel(app, "small");
@@ -158,6 +257,23 @@ pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
                     let _ = set_auto_refresh_seconds(app, seconds);
                     let _ = app.emit("auto-refresh-seconds-changed", seconds);
                 }
+            }
+            id if id.starts_with("color-scheme-") => {
+                if let Some(color_scheme) = parse_color_scheme_menu_id(id) {
+                    let dark_mode = dark_mode_checked(app);
+                    let _ = set_appearance(app, color_scheme, dark_mode);
+                    let _ = app.emit("color-scheme-changed", color_scheme);
+                }
+            }
+            "dark-mode" => {
+                let next_dark_mode = !dark_mode_checked(app);
+                let color_scheme = color_scheme(app);
+                let _ = set_appearance(app, &color_scheme, next_dark_mode);
+                let _ = app.emit("dark-mode-changed", next_dark_mode);
+            }
+            "check-update" => {
+                let _ = window::show_panel(app, "large");
+                let _ = app.emit("update-check-requested", ());
             }
             "restart" => {
                 app.restart();
@@ -227,6 +343,55 @@ fn auto_refresh_label(seconds: u32) -> String {
         .to_string()
 }
 
+fn color_scheme(app: &AppHandle) -> String {
+    app.try_state::<AppearanceMenuState>()
+        .and_then(|state| state.color_scheme.lock().ok().map(|scheme| scheme.clone()))
+        .filter(|scheme| is_color_scheme(scheme))
+        .unwrap_or_else(|| "blue".into())
+}
+
+fn dark_mode_checked(app: &AppHandle) -> bool {
+    app.try_state::<AppearanceMenuState>()
+        .and_then(|state| state.dark_mode.lock().ok().map(|dark_mode| *dark_mode))
+        .unwrap_or(false)
+}
+
+fn color_scheme_item(
+    app: &AppHandle,
+    scheme: &str,
+    label: &str,
+    current_scheme: &str,
+) -> tauri::Result<CheckMenuItem<tauri::Wry>> {
+    CheckMenuItem::with_id(
+        app,
+        format!("color-scheme-{scheme}"),
+        label,
+        true,
+        scheme == current_scheme,
+        None::<&str>,
+    )
+}
+
+fn parse_color_scheme_menu_id(id: &str) -> Option<&'static str> {
+    let scheme = id.strip_prefix("color-scheme-")?;
+    COLOR_SCHEMES
+        .iter()
+        .find_map(|(preset_scheme, _)| (*preset_scheme == scheme).then_some(*preset_scheme))
+}
+
+fn color_scheme_label(scheme: &str) -> &str {
+    COLOR_SCHEMES
+        .iter()
+        .find_map(|(preset_scheme, label)| (*preset_scheme == scheme).then_some(*label))
+        .unwrap_or("蓝")
+}
+
+fn is_color_scheme(scheme: &str) -> bool {
+    COLOR_SCHEMES
+        .iter()
+        .any(|(preset_scheme, _)| *preset_scheme == scheme)
+}
+
 fn display_version() -> String {
     APP_VERSION
         .strip_suffix(".0")
@@ -240,17 +405,58 @@ pub fn update_quota_icon(
     secondary_remaining: Option<i64>,
     status: &str,
 ) -> tauri::Result<()> {
+    if let Some(state) = app.try_state::<TrayVisualState>() {
+        if let Ok(mut current) = state.primary_remaining.lock() {
+            *current = primary_remaining;
+        }
+        if let Ok(mut current) = state.secondary_remaining.lock() {
+            *current = secondary_remaining;
+        }
+        if let Ok(mut current) = state.status.lock() {
+            *current = status.to_string();
+        }
+        render_tray_state(app, &state)?;
+    }
+    Ok(())
+}
+
+fn render_tray_state(app: &AppHandle, state: &TrayVisualState) -> tauri::Result<()> {
+    let primary_remaining = state
+        .primary_remaining
+        .lock()
+        .ok()
+        .and_then(|current| *current);
+    let secondary_remaining = state
+        .secondary_remaining
+        .lock()
+        .ok()
+        .and_then(|current| *current);
+    let status = state
+        .status
+        .lock()
+        .ok()
+        .map(|current| current.clone())
+        .unwrap_or_else(|| "idle".into());
+    let update_available = state
+        .update_available
+        .lock()
+        .ok()
+        .map(|current| *current)
+        .unwrap_or(false);
+
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         tray.set_icon(Some(create_tray_image(
             primary_remaining,
             secondary_remaining,
-            status,
+            &status,
+            update_available,
         )))?;
         tray.set_icon_as_template(false)?;
         tray.set_tooltip(Some(make_tooltip(
             primary_remaining,
             secondary_remaining,
-            status,
+            &status,
+            update_available,
         )))?;
     }
     Ok(())
@@ -260,18 +466,20 @@ fn make_tooltip(
     primary_remaining: Option<i64>,
     secondary_remaining: Option<i64>,
     status: &str,
+    update_available: bool,
 ) -> String {
+    let update_text = if update_available { " · 有新版本" } else { "" };
     if status == "error" {
-        return "Codex 额度暂时无法获取".into();
+        return format!("Codex 额度暂时无法获取{update_text}");
     }
     match primary_remaining {
         Some(primary) => {
             let weekly = secondary_remaining
                 .map(|secondary| format!(" / 周 {secondary}%"))
                 .unwrap_or_default();
-            format!("Codex 剩余: 5小时 {primary}%{weekly}")
+            format!("Codex 剩余: 5小时 {primary}%{weekly}{update_text}")
         }
-        None => "正在读取 Codex 额度".into(),
+        None => format!("正在读取 Codex 额度{update_text}"),
     }
 }
 
@@ -279,6 +487,7 @@ fn create_tray_image(
     primary_remaining: Option<i64>,
     secondary_remaining: Option<i64>,
     status: &str,
+    update_available: bool,
 ) -> Image<'static> {
     let size = 32;
     let mut rgba = vec![0; size * size * 4];
@@ -293,6 +502,9 @@ fn create_tray_image(
         pick_quota_color(primary_remaining, status, palette.dim),
         pick_quota_color(secondary_remaining, status, palette.dim),
     );
+    if update_available {
+        fill_update_badge(&mut rgba, size);
+    }
 
     Image::new_owned(rgba, size as u32, size as u32)
 }
@@ -452,4 +664,27 @@ fn set_pixel(rgba: &mut [u8], canvas_size: usize, x: usize, y: usize, color: Col
     rgba[index + 1] = color[1];
     rgba[index + 2] = color[2];
     rgba[index + 3] = color[3];
+}
+
+fn fill_update_badge(rgba: &mut [u8], canvas_size: usize) {
+    let scale = canvas_size as f64 / 32.0;
+    let cx = 24.4;
+    let cy = 7.5;
+    let outer_radius = 5.7;
+    let inner_radius = 4.2;
+    for y in 0..canvas_size {
+        for x in 0..canvas_size {
+            let px = (x as f64 + 0.5) / scale;
+            let py = (y as f64 + 0.5) / scale;
+            let distance = (px - cx).hypot(py - cy);
+            if distance <= outer_radius {
+                let color = if distance > inner_radius {
+                    [255, 255, 255, 255]
+                } else {
+                    [239, 68, 68, 255]
+                };
+                set_pixel(rgba, canvas_size, x, y, color);
+            }
+        }
+    }
 }

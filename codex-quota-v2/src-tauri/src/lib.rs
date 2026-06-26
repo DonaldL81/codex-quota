@@ -1,5 +1,6 @@
 mod quota;
 mod tray;
+mod updates;
 mod window;
 
 use quota::QuotaSnapshot;
@@ -65,6 +66,15 @@ fn set_auto_refresh_menu_seconds(app: AppHandle, seconds: u32) -> Result<(), Str
     tray::set_auto_refresh_seconds(&app, seconds).map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+fn set_appearance_menu_state(
+    app: AppHandle,
+    color_scheme: String,
+    dark_mode: bool,
+) -> Result<(), String> {
+    tray::set_appearance(&app, &color_scheme, dark_mode).map_err(|error| error.to_string())
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TrayQuotaState {
@@ -84,9 +94,15 @@ fn update_tray_quota(app: AppHandle, state: TrayQuotaState) -> Result<(), String
     .map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+fn set_update_available(app: AppHandle, available: bool) -> Result<(), String> {
+    tray::set_update_available(&app, available).map_err(|error| error.to_string())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -120,7 +136,12 @@ pub fn run() {
             show_context_menu,
             set_autostart_menu_checked,
             set_auto_refresh_menu_seconds,
-            update_tray_quota
+            set_appearance_menu_state,
+            update_tray_quota,
+            set_update_available,
+            updates::check_update,
+            updates::download_portable_update,
+            updates::download_installer_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running Codex Quota Monitor");

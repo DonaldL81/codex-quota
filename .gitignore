@@ -4,6 +4,8 @@ node_modules/
 # Frontend build output
 dist/
 dist-portable/
+codex-quota-v2/dist/
+codex-quota-v2/dist-portable/
 
 # Rust/Tauri build output
 target/
@@ -24,11 +26,14 @@ dev-*.log
 
 # Packaged binaries and archives
 *.exe
-!Codex Quota Monitor 2.2.2 Portable.exe
-!Codex Quota Monitor 2.2.2 Setup.exe
+!Codex Quota Monitor 2.2.5 Portable.exe
+!Codex Quota Monitor 2.2.5 Setup.exe
 *.msi
 *.zip
 *.7z
+
+# Local project notes
+docs/
 
 # OS/editor noise
 .DS_Store
@@ -36,7 +41,7 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Local-only V2 convenience docs/scripts
+# Legacy local-only V2 convenience docs/scripts
 codex-quota-v2/README.md
 codex-quota-v2/发布说明.md
 codex-quota-v2/一键发布便携版.cmd

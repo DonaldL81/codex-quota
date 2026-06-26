@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 
 function Write-Utf8File {
   param(
@@ -110,6 +110,22 @@ function Set-ProjectVersion {
       Write-Utf8File -Path $docPath -Text $docText
     }
   }
+
+  $repoRoot = Resolve-Path (Join-Path $ProjectRoot "..")
+  $gitignorePath = Join-Path $repoRoot ".gitignore"
+  if (Test-Path -LiteralPath $gitignorePath) {
+    $gitignoreText = Get-Content -LiteralPath $gitignorePath -Raw -Encoding UTF8
+    $gitignoreText = [regex]::Replace(
+      $gitignoreText,
+      '(?m)^!Codex Quota Monitor [^\r\n]+ (Portable|Setup)\.exe\r?$',
+      ''
+    )
+    $gitignoreText = $gitignoreText.TrimEnd() + [Environment]::NewLine + @"
+!Codex Quota Monitor $NewVersion Portable.exe
+!Codex Quota Monitor $NewVersion Setup.exe
+"@
+    Write-Utf8File -Path $gitignorePath -Text ($gitignoreText.TrimEnd() + [Environment]::NewLine)
+  }
 }
 
 function Invoke-ReleaseVersionPrompt {
@@ -120,23 +136,23 @@ function Invoke-ReleaseVersionPrompt {
   )
 
   $currentVersion = Assert-VersionSync -ProjectRoot $ProjectRoot
-  Write-Host "Current version: $currentVersion"
+  Write-Host "当前版本：$currentVersion"
 
   $shouldBump = $false
   if ($BumpPatch) {
     $shouldBump = $true
   } elseif (-not $NoPrompt) {
-    $inputValue = Read-Host "Input 1 to bump patch version; press Enter or input anything else to keep current version"
+    $inputValue = Read-Host "输入 1 自动升级 patch 版本；直接回车或输入其他内容保持当前版本"
     $shouldBump = $inputValue -eq "1"
   }
 
   if ($shouldBump) {
     $nextVersion = Get-NextPatchVersion -Version $currentVersion
     Set-ProjectVersion -ProjectRoot $ProjectRoot -OldVersion $currentVersion -NewVersion $nextVersion
-    Write-Host "Version updated: $currentVersion -> $nextVersion"
+    Write-Host "版本已更新：$currentVersion -> $nextVersion"
     return $nextVersion
   }
 
-  Write-Host "Version kept: $currentVersion"
+  Write-Host "版本保持不变：$currentVersion"
   return $currentVersion
 }
