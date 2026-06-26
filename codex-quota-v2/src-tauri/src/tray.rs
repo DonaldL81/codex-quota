@@ -127,27 +127,22 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         None::<&str>,
     )?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-    let separator_1 = PredefinedMenuItem::separator(app)?;
-    let separator_2 = PredefinedMenuItem::separator(app)?;
-    let separator_3 = PredefinedMenuItem::separator(app)?;
+    let window_menu = Submenu::with_items(app, "窗口", true, &[&small, &large, &topmost])?;
+    let appearance_menu = Submenu::with_items(app, "外观", true, &[&color_menu, &dark_mode])?;
+    let refresh_menu =
+        Submenu::with_items(app, "刷新与更新", true, &[&auto_refresh, &check_update])?;
+    let app_menu = Submenu::with_items(app, "应用", true, &[&autostart, &restart, &quit])?;
+    let separator = PredefinedMenuItem::separator(app)?;
 
     Menu::with_items(
         app,
         &[
-            &small,
-            &large,
-            &topmost,
-            &separator_1,
-            &autostart,
-            &color_menu,
-            &dark_mode,
-            &auto_refresh,
-            &check_update,
-            &restart,
-            &separator_2,
+            &window_menu,
+            &appearance_menu,
+            &refresh_menu,
+            &app_menu,
+            &separator,
             &version,
-            &separator_3,
-            &quit,
         ],
     )
 }

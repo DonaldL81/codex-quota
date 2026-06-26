@@ -81,14 +81,11 @@ if (-not (Test-Path -LiteralPath $sourceExe)) {
   throw "便携版源 EXE 不存在：$sourceExe"
 }
 
-$outDir = Join-Path $projectRoot "dist-portable"
-New-Item -ItemType Directory -Path $outDir -Force | Out-Null
-
-$portableExe = Join-Path $outDir "$productName $version Portable.exe"
-if (Test-Path -LiteralPath $portableExe) {
+$repoPortable = Join-Path $repoRoot ("{0} {1} Portable.exe" -f $productName, $version)
+if (Test-Path -LiteralPath $repoPortable) {
   Get-Process -ErrorAction SilentlyContinue | ForEach-Object {
     try {
-      if ($_.Path -eq $portableExe) {
+      if ($_.Path -eq $repoPortable) {
         Write-Host "正在停止已运行的便携版：PID $($_.Id)"
         Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
       }
@@ -98,7 +95,7 @@ if (Test-Path -LiteralPath $portableExe) {
   }
   Start-Sleep -Milliseconds 500
 }
-Copy-Item -LiteralPath $sourceExe -Destination $portableExe -Force
+Copy-Item -LiteralPath $sourceExe -Destination $repoPortable -Force
 
 $nsisDir = Join-Path $projectRoot "src-tauri\target\release\bundle\nsis"
 $setupExe = Get-ChildItem -LiteralPath $nsisDir -Filter ("{0}_{1}_*_setup.exe" -f $productName, $version) -ErrorAction SilentlyContinue |
@@ -113,20 +110,21 @@ if (-not $setupExe) {
   throw "正式安装包不存在：$nsisDir"
 }
 
-$repoPortable = Join-Path $repoRoot ("{0} {1} Portable.exe" -f $productName, $version)
 $repoSetup = Join-Path $repoRoot ("{0} {1} Setup.exe" -f $productName, $version)
-Copy-Item -LiteralPath $portableExe -Destination $repoPortable -Force
 Copy-Item -LiteralPath $setupExe.FullName -Destination $repoSetup -Force
 
+$portableOutDir = Join-Path $projectRoot "dist-portable"
+if (Test-Path -LiteralPath $portableOutDir) {
+  Remove-Item -LiteralPath $portableOutDir -Recurse -Force
+}
+$bundleDir = Join-Path $projectRoot "src-tauri\target\release\bundle"
+if (Test-Path -LiteralPath $bundleDir) {
+  Remove-Item -LiteralPath $bundleDir -Recurse -Force
+}
+
 Write-Host ""
-Write-Host "正式安装包目录："
-Write-Host (Join-Path $projectRoot "src-tauri\target\release\bundle")
-Write-Host ""
-Write-Host "便携版 EXE："
-Write-Host $portableExe
-Write-Host ""
-Write-Host "已同步到仓库根目录："
+Write-Host "已输出到仓库根目录："
 Write-Host $repoPortable
 Write-Host $repoSetup
 Write-Host ""
-Write-Host "提示：便携版复用本次正式版编译产物，不会重复执行 tauri build --no-bundle。"
+Write-Host "提示：便携版复用本次正式版编译产物；子目录打包产物已清理。"

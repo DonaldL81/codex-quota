@@ -5,6 +5,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
   import { save } from "@tauri-apps/plugin-dialog";
+  import { open } from "@tauri-apps/plugin-shell";
 
   type QuotaSnapshot = {
     status: string;
@@ -93,6 +94,7 @@
   let updateProgress: UpdateProgress | null = null;
   let updateErrorText = "";
   let updateSavedPath = "";
+  let updateSavedFolder = "";
   let toast = "";
   let toastTimer: number | undefined;
   let uiScale = 1;
@@ -368,6 +370,7 @@
     if (!updateInfo?.available || updateDownloading) return;
     updateDownloading = true;
     updateSavedPath = "";
+    updateSavedFolder = "";
     updateErrorText = "";
     updateProgress = {
       phase: "downloading",
@@ -393,6 +396,7 @@
           url: updateInfo.portableAssetUrl,
           savePath: target
         });
+        updateSavedFolder = folderFromPath(updateSavedPath);
         showToast("便携版更新已保存");
       } else {
         if (!updateInfo.setupAssetUrl) throw new Error("未找到正式安装包更新文件");
@@ -407,6 +411,15 @@
       if (updateProgress?.phase !== "installing") {
         updateDownloading = false;
       }
+    }
+  }
+
+  async function openUpdateSavedFolder() {
+    if (!updateSavedFolder) return;
+    try {
+      await open(updateSavedFolder);
+    } catch {
+      showToast("无法打开所在文件夹");
     }
   }
 
@@ -788,13 +801,35 @@
 
   function friendlyUpdateError(error: unknown) {
     const raw = String(error || "").trim();
-    if (!raw) return "更新失败：未知原因";
+    if (!raw) return "下载中断，请重新下载";
     const lower = raw.toLowerCase();
-    if (lower.includes("timeout") || lower.includes("超时")) return "检查更新超时，请稍后重试";
-    if (lower.includes("network") || lower.includes("dns") || lower.includes("connection")) {
-      return "网络异常，无法检查或下载更新";
+    if (lower.includes("未找到便携版更新文件") || lower.includes("未找到正式安装包更新文件")) {
+      return "新版本暂不可下载";
+    }
+    if (lower.includes("无法启动安装程序") || lower.includes("安装程序启动失败")) {
+      return "安装失败，请手动下载";
+    }
+    if (lower.includes("检查更新") || lower.includes("timeout") || lower.includes("超时")) {
+      return "无法检查更新，请稍后重试";
+    }
+    if (
+      lower.includes("下载") ||
+      lower.includes("network") ||
+      lower.includes("dns") ||
+      lower.includes("connection") ||
+      lower.includes("request") ||
+      lower.includes("fetch")
+    ) {
+      return "下载中断，请重新下载";
     }
     return raw;
+  }
+
+  function folderFromPath(path: string) {
+    const normalized = path.replace(/\\/g, "/");
+    const index = normalized.lastIndexOf("/");
+    if (index <= 0) return "";
+    return path.slice(0, index);
   }
 
   function makeSubtitle(currentQuota: QuotaSnapshot | null, refreshText: string) {
@@ -1019,12 +1054,12 @@
       </div>
       <button
         class="update-button"
-        title={updateActionText()}
-        aria-label={updateActionText()}
+        title={updateSavedFolder ? "打开所在文件夹" : updateActionText()}
+        aria-label={updateSavedFolder ? "打开所在文件夹" : updateActionText()}
         disabled={updateChecking || updateDownloading}
-        on:click={updateInfo?.available ? startUpdateDownload : () => checkForUpdates(true)}
+        on:click={updateSavedFolder ? openUpdateSavedFolder : updateInfo?.available ? startUpdateDownload : () => checkForUpdates(true)}
       >
-        {updateInfo?.available ? (updateInfo.packageKind === "portable" ? "保存" : "更新") : "检查"}
+        {updateSavedFolder ? "打开" : updateInfo?.available ? (updateInfo.packageKind === "portable" ? "保存" : "更新") : "检查"}
       </button>
     </section>
   {/if}

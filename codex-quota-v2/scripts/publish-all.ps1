@@ -49,15 +49,61 @@ Write-Host $repoPortable
 Write-Host $repoSetup
 git -C $repoRoot add -f -- (Split-Path -Leaf $repoPortable) (Split-Path -Leaf $repoSetup)
 
-$releaseNote = Join-Path $projectRoot "发布说明.md"
-$outDir = Join-Path $projectRoot "dist-portable"
-if (Test-Path -LiteralPath $releaseNote) {
-  Copy-Item -LiteralPath $releaseNote -Destination (Join-Path $outDir "发布说明.md") -Force
+if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+  throw "未找到 GitHub CLI（gh）。请先安装并登录 gh，才能创建 GitHub Release。"
+}
+
+$ghStatus = gh auth status 2>&1
+if ($LASTEXITCODE -ne 0) {
+  throw "GitHub CLI 尚未登录。请先执行 gh auth login。"
+}
+
+$tagName = "v$version"
+$releaseTitle = "$productName $version"
+$releaseNotes = @"
+$productName $version
+
+- 单文件免安装包：$(Split-Path -Leaf $repoPortable)
+- 安装包：$(Split-Path -Leaf $repoSetup)
+"@
+
+Write-Host ""
+Write-Host "正在创建或更新 GitHub Release：$tagName"
+$releaseExists = $false
+gh release view $tagName --repo "DonaldL81/codex-quota" *> $null
+if ($LASTEXITCODE -eq 0) {
+  $releaseExists = $true
+}
+
+if (-not $releaseExists) {
+  gh release create $tagName `
+    --repo "DonaldL81/codex-quota" `
+    --title $releaseTitle `
+    --notes $releaseNotes `
+    --latest
+  if ($LASTEXITCODE -ne 0) {
+    throw "创建 GitHub Release 失败：$tagName"
+  }
+} else {
+  gh release edit $tagName `
+    --repo "DonaldL81/codex-quota" `
+    --title $releaseTitle `
+    --notes $releaseNotes `
+    --latest
+  if ($LASTEXITCODE -ne 0) {
+    throw "更新 GitHub Release 失败：$tagName"
+  }
+}
+
+gh release upload $tagName $repoPortable $repoSetup --repo "DonaldL81/codex-quota" --clobber
+if ($LASTEXITCODE -ne 0) {
+  throw "上传 GitHub Release 资源失败：$tagName"
 }
 
 Write-Host ""
 Write-Host "发布产物："
 Write-Host $repoPortable
 Write-Host $repoSetup
+Write-Host "GitHub Release：$tagName"
 Write-Host ""
 Write-Host "发布完成。"

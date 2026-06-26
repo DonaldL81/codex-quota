@@ -355,7 +355,9 @@ try {
   $versionDetail = "package.json=$($packageJson.version), tauri.conf.json=$($tauriConfig.version), Cargo.toml=$cargoVersion"
   Add-Result -Name "版本号同步" -Ok $versionOk -Detail $versionDetail
 
-  $portableExe = Join-Path $projectRoot ("dist-portable\{0} {1} Portable.exe" -f $tauriConfig.productName, $tauriConfig.version)
+  $repoRoot = Resolve-Path (Join-Path $projectRoot "..")
+  $portableExe = Join-Path $repoRoot ("{0} {1} Portable.exe" -f $tauriConfig.productName, $tauriConfig.version)
+  $setupExe = Join-Path $repoRoot ("{0} {1} Setup.exe" -f $tauriConfig.productName, $tauriConfig.version)
   if (Test-Path -LiteralPath $portableExe) {
     $portableItem = Get-Item -LiteralPath $portableExe
     $portableSizeMb = [Math]::Round($portableItem.Length / 1MB, 2)
@@ -378,6 +380,14 @@ try {
     Add-Result -Name "便携版 EXE 存在" -Ok $false -Detail $portableExe
     Add-Result -Name "便携版启动冒烟" -Ok $false -Detail "便携版 EXE 不存在，跳过启动测试。"
     Add-Result -Name "窗口状态文件" -Ok $false -Detail "便携版 EXE 不存在，跳过状态文件测试。"
+  }
+
+  if (Test-Path -LiteralPath $setupExe) {
+    $setupItem = Get-Item -LiteralPath $setupExe
+    $setupSizeMb = [Math]::Round($setupItem.Length / 1MB, 2)
+    Add-Result -Name "正式安装包存在" -Ok ($setupItem.Length -gt (1024 * 1024)) -Detail ("{0} ({1} MB)" -f $setupExe, $setupSizeMb)
+  } else {
+    Add-Result -Name "正式安装包存在" -Ok $false -Detail $setupExe
   }
 
   $webView2 = Test-WebView2Runtime
