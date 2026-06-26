@@ -53,12 +53,14 @@
 
   type Status = "loading" | "ready" | "stale" | "error";
   type ColorScheme = "red" | "orange" | "yellow" | "green" | "cyan" | "blue" | "purple" | "black" | "white";
+  type PanelOpacity = 100 | 90 | 80 | 70 | 60 | 50;
   type CurrentWindow = ReturnType<typeof getCurrentWindow>;
   type RawQuota = Partial<QuotaSnapshot> & Record<string, unknown>;
 
   const defaultAutoRefreshSeconds = 30;
   const autoRefreshPresets = [30, 60, 300, 600, 1200, 1800, 3600];
   const colorSchemes: ColorScheme[] = ["red", "orange", "yellow", "green", "cyan", "blue", "purple", "black", "white"];
+  const opacityPresets: PanelOpacity[] = [100, 90, 80, 70, 60, 50];
   const visibleCacheSyncMs = 5_000;
   const invokeTimeoutMs = 35_000;
   const largeBaseWidth = 200;
@@ -68,6 +70,7 @@
   const autoRefreshCacheKey = "codex-quota-v2:auto-refresh-seconds";
   const colorSchemeCacheKey = "codex-quota-v2:color-scheme";
   const darkModeCacheKey = "codex-quota-v2:dark-mode";
+  const opacityCacheKey = "codex-quota-v2:opacity";
   const previewParams =
     typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search);
   const previewEnabled = previewParams.has("mock");
@@ -85,6 +88,7 @@
   let autoRefreshSeconds = readAutoRefreshSeconds();
   let colorScheme = readColorScheme();
   let darkMode = readDarkMode();
+  let panelOpacity = readPanelOpacity();
   let status: Status = previewEnabled ? "ready" : quota ? "stale" : "loading";
   let isRefreshing = false;
   let errorText = "";
@@ -118,7 +122,7 @@
   $: statusMessage = makeStatusText(status, errorText, displayQuota, lastRefreshText);
   $: updateVisible = !!updateInfo?.available || updateChecking || updateDownloading || !!updateErrorText || !!updateSavedPath;
   $: updatePercent = clamp(Math.round(updateProgress?.percent ?? 0), 0, 100);
-  $: scaleStyle = `--ui-scale:${uiScale.toFixed(3)};--width-scale:${widthScale.toFixed(3)};--height-scale:${heightScale.toFixed(3)};`;
+  $: scaleStyle = `--ui-scale:${uiScale.toFixed(3)};--width-scale:${widthScale.toFixed(3)};--height-scale:${heightScale.toFixed(3)};--panel-opacity:${(panelOpacity / 100).toFixed(2)};`;
   $: shellClass = `shell ${isSmall ? "small-mode" : "large-mode"} color-${colorScheme} ${darkMode ? "dark-mode" : ""}`;
 
   onMount(() => {
@@ -174,10 +178,13 @@
       setAutoRefreshSeconds(event.payload);
     });
     const unlistenColorScheme = await listenSafe<ColorScheme>("color-scheme-changed", (event) => {
-      setColorScheme(event.payload);
+      setColorScheme(event.payload, false);
     });
     const unlistenDarkMode = await listenSafe<boolean>("dark-mode-changed", (event) => {
-      setDarkMode(event.payload);
+      setDarkMode(event.payload, false);
+    });
+    const unlistenOpacity = await listenSafe<PanelOpacity>("opacity-changed", (event) => {
+      setPanelOpacity(event.payload, false);
     });
     const unlistenMode = await listenSafe<string>("mode-changed", (event) => {
       mode = event.payload === "large" ? "large" : "small";
@@ -212,6 +219,7 @@
       unlistenAutoRefresh();
       unlistenColorScheme();
       unlistenDarkMode();
+      unlistenOpacity();
       unlistenMode();
       unlistenTopmost();
       unlistenVisibility();
@@ -481,7 +489,8 @@
     try {
       await invoke("set_appearance_menu_state", {
         colorScheme,
-        darkMode
+        darkMode,
+        opacity: panelOpacity
       });
     } catch {
       // The menu check marks are a convenience; local UI state remains authoritative.
@@ -497,17 +506,24 @@
     showToast(`自动刷新 ${autoRefreshLabel(nextSeconds)}`);
   }
 
-  async function setColorScheme(nextColorScheme: ColorScheme) {
+  async function setColorScheme(nextColorScheme: ColorScheme, syncMenu = true) {
     if (!isColorScheme(nextColorScheme)) return;
     colorScheme = nextColorScheme;
     writeColorScheme(nextColorScheme);
-    await syncAppearanceMenu();
+    if (syncMenu) await syncAppearanceMenu();
   }
 
-  async function setDarkMode(nextDarkMode: boolean) {
+  async function setDarkMode(nextDarkMode: boolean, syncMenu = true) {
     darkMode = nextDarkMode;
     writeDarkMode(nextDarkMode);
-    await syncAppearanceMenu();
+    if (syncMenu) await syncAppearanceMenu();
+  }
+
+  async function setPanelOpacity(nextOpacity: number, syncMenu = true) {
+    if (!isPanelOpacity(nextOpacity)) return;
+    panelOpacity = nextOpacity;
+    writePanelOpacity(nextOpacity);
+    if (syncMenu) await syncAppearanceMenu();
   }
 
   function showToast(text: string) {
@@ -628,6 +644,18 @@
     }
   }
 
+  function readPanelOpacity(): PanelOpacity {
+    try {
+      const value = Number(window.localStorage.getItem(opacityCacheKey));
+      if (isPanelOpacity(value)) {
+        return value;
+      }
+    } catch {
+      // Fall back to the default panel opacity when storage is unavailable.
+    }
+    return 90;
+  }
+
   function writeAutoRefreshSeconds(seconds: number) {
     try {
       window.localStorage.setItem(autoRefreshCacheKey, String(seconds));
@@ -652,12 +680,24 @@
     }
   }
 
+  function writePanelOpacity(nextOpacity: PanelOpacity) {
+    try {
+      window.localStorage.setItem(opacityCacheKey, String(nextOpacity));
+    } catch {
+      // The in-memory value still applies for this session.
+    }
+  }
+
   function isAutoRefreshPreset(seconds: number) {
     return Number.isInteger(seconds) && autoRefreshPresets.includes(seconds);
   }
 
   function isColorScheme(value: unknown): value is ColorScheme {
     return typeof value === "string" && colorSchemes.includes(value as ColorScheme);
+  }
+
+  function isPanelOpacity(value: unknown): value is PanelOpacity {
+    return typeof value === "number" && opacityPresets.includes(value as PanelOpacity);
   }
 
   function autoRefreshLabel(seconds: number) {

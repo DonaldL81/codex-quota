@@ -71,8 +71,9 @@ fn set_appearance_menu_state(
     app: AppHandle,
     color_scheme: String,
     dark_mode: bool,
+    opacity: u32,
 ) -> Result<(), String> {
-    tray::set_appearance(&app, &color_scheme, dark_mode).map_err(|error| error.to_string())
+    tray::set_appearance(&app, &color_scheme, dark_mode, opacity).map_err(|error| error.to_string())
 }
 
 #[derive(Deserialize)]

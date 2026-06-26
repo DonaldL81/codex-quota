@@ -27,6 +27,14 @@ const COLOR_SCHEMES: &[(&str, &str)] = &[
     ("black", "黑"),
     ("white", "白"),
 ];
+const OPACITY_PRESETS: &[(u32, &str)] = &[
+    (100, "100%"),
+    (90, "90%"),
+    (80, "80%"),
+    (70, "70%"),
+    (60, "60%"),
+    (50, "50%"),
+];
 type Color = [u8; 4];
 
 struct AutostartMenuState {
@@ -40,6 +48,7 @@ struct AutoRefreshMenuState {
 struct AppearanceMenuState {
     color_scheme: Mutex<String>,
     dark_mode: Mutex<bool>,
+    opacity: Mutex<u32>,
 }
 
 struct TrayVisualState {
@@ -117,6 +126,26 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         dark_mode_checked(app),
         None::<&str>,
     )?;
+    let current_opacity = opacity(app);
+    let opacity_100 = opacity_item(app, 100, "100%", current_opacity)?;
+    let opacity_90 = opacity_item(app, 90, "90%", current_opacity)?;
+    let opacity_80 = opacity_item(app, 80, "80%", current_opacity)?;
+    let opacity_70 = opacity_item(app, 70, "70%", current_opacity)?;
+    let opacity_60 = opacity_item(app, 60, "60%", current_opacity)?;
+    let opacity_50 = opacity_item(app, 50, "50%", current_opacity)?;
+    let opacity_menu = Submenu::with_items(
+        app,
+        format!("透明度 {}", opacity_label(current_opacity)),
+        true,
+        &[
+            &opacity_100,
+            &opacity_90,
+            &opacity_80,
+            &opacity_70,
+            &opacity_60,
+            &opacity_50,
+        ],
+    )?;
     let check_update = MenuItem::with_id(app, "check-update", "检查更新", true, None::<&str>)?;
     let restart = MenuItem::with_id(app, "restart", "重启", true, None::<&str>)?;
     let version = MenuItem::with_id(
@@ -128,7 +157,8 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     )?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
     let window_menu = Submenu::with_items(app, "窗口", true, &[&small, &large, &topmost])?;
-    let appearance_menu = Submenu::with_items(app, "外观", true, &[&color_menu, &dark_mode])?;
+    let appearance_menu =
+        Submenu::with_items(app, "外观", true, &[&color_menu, &dark_mode, &opacity_menu])?;
     let refresh_menu =
         Submenu::with_items(app, "刷新与更新", true, &[&auto_refresh, &check_update])?;
     let app_menu = Submenu::with_items(app, "应用", true, &[&autostart, &restart, &quit])?;
@@ -173,7 +203,12 @@ pub fn set_auto_refresh_seconds(app: &AppHandle, seconds: u32) -> tauri::Result<
     Ok(())
 }
 
-pub fn set_appearance(app: &AppHandle, color_scheme: &str, dark_mode: bool) -> tauri::Result<()> {
+fn update_appearance_state(
+    app: &AppHandle,
+    color_scheme: &str,
+    dark_mode: bool,
+    opacity: u32,
+) {
     if let Some(state) = app.try_state::<AppearanceMenuState>() {
         if is_color_scheme(color_scheme) {
             if let Ok(mut current) = state.color_scheme.lock() {
@@ -183,7 +218,21 @@ pub fn set_appearance(app: &AppHandle, color_scheme: &str, dark_mode: bool) -> t
         if let Ok(mut current) = state.dark_mode.lock() {
             *current = dark_mode;
         }
+        if is_opacity_preset(opacity) {
+            if let Ok(mut current) = state.opacity.lock() {
+                *current = opacity;
+            }
+        }
     }
+}
+
+pub fn set_appearance(
+    app: &AppHandle,
+    color_scheme: &str,
+    dark_mode: bool,
+    opacity: u32,
+) -> tauri::Result<()> {
+    update_appearance_state(app, color_scheme, dark_mode, opacity);
 
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         tray.set_menu(Some(build_menu(app)?))?;
@@ -219,6 +268,7 @@ pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
     app.manage(AppearanceMenuState {
         color_scheme: Mutex::new("blue".into()),
         dark_mode: Mutex::new(false),
+        opacity: Mutex::new(90),
     });
     app.manage(TrayVisualState {
         primary_remaining: Mutex::new(None),
@@ -256,15 +306,25 @@ pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
             id if id.starts_with("color-scheme-") => {
                 if let Some(color_scheme) = parse_color_scheme_menu_id(id) {
                     let dark_mode = dark_mode_checked(app);
-                    let _ = set_appearance(app, color_scheme, dark_mode);
+                    let current_opacity = opacity(app);
+                    update_appearance_state(app, color_scheme, dark_mode, current_opacity);
                     let _ = app.emit("color-scheme-changed", color_scheme);
                 }
             }
             "dark-mode" => {
                 let next_dark_mode = !dark_mode_checked(app);
                 let color_scheme = color_scheme(app);
-                let _ = set_appearance(app, &color_scheme, next_dark_mode);
+                let current_opacity = opacity(app);
+                update_appearance_state(app, &color_scheme, next_dark_mode, current_opacity);
                 let _ = app.emit("dark-mode-changed", next_dark_mode);
+            }
+            id if id.starts_with("opacity-") => {
+                if let Some(next_opacity) = parse_opacity_menu_id(id) {
+                    let color_scheme = color_scheme(app);
+                    let dark_mode = dark_mode_checked(app);
+                    update_appearance_state(app, &color_scheme, dark_mode, next_opacity);
+                    let _ = app.emit("opacity-changed", next_opacity);
+                }
             }
             "check-update" => {
                 let _ = window::show_panel(app, "large");
@@ -351,6 +411,13 @@ fn dark_mode_checked(app: &AppHandle) -> bool {
         .unwrap_or(false)
 }
 
+fn opacity(app: &AppHandle) -> u32 {
+    app.try_state::<AppearanceMenuState>()
+        .and_then(|state| state.opacity.lock().ok().map(|opacity| *opacity))
+        .filter(|opacity| is_opacity_preset(*opacity))
+        .unwrap_or(90)
+}
+
 fn color_scheme_item(
     app: &AppHandle,
     scheme: &str,
@@ -385,6 +452,41 @@ fn is_color_scheme(scheme: &str) -> bool {
     COLOR_SCHEMES
         .iter()
         .any(|(preset_scheme, _)| *preset_scheme == scheme)
+}
+
+fn opacity_item(
+    app: &AppHandle,
+    opacity: u32,
+    label: &str,
+    current_opacity: u32,
+) -> tauri::Result<CheckMenuItem<tauri::Wry>> {
+    CheckMenuItem::with_id(
+        app,
+        format!("opacity-{opacity}"),
+        label,
+        true,
+        opacity == current_opacity,
+        None::<&str>,
+    )
+}
+
+fn parse_opacity_menu_id(id: &str) -> Option<u32> {
+    let opacity = id.strip_prefix("opacity-")?.parse::<u32>().ok()?;
+    is_opacity_preset(opacity).then_some(opacity)
+}
+
+fn opacity_label(opacity: u32) -> String {
+    OPACITY_PRESETS
+        .iter()
+        .find_map(|(preset_opacity, label)| (*preset_opacity == opacity).then_some(*label))
+        .unwrap_or("90%")
+        .to_string()
+}
+
+fn is_opacity_preset(opacity: u32) -> bool {
+    OPACITY_PRESETS
+        .iter()
+        .any(|(preset_opacity, _)| *preset_opacity == opacity)
 }
 
 fn display_version() -> String {

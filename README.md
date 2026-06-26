@@ -2,7 +2,7 @@
 
 一个轻量的 Windows 托盘小工具，用来查看 Codex 账号剩余额度。
 
-当前版本：`2.2.5`
+当前版本：`2.2.6`
 
 ## 界面预览
 
@@ -29,10 +29,10 @@
 
 ```text
 单文件免安装包：
-Codex Quota Monitor 2.2.5 Portable.exe
+Codex Quota Monitor 2.2.6 Portable.exe
 
 安装包：
-Codex Quota Monitor 2.2.5 Setup.exe
+Codex Quota Monitor 2.2.6 Setup.exe
 ```
 
 推荐普通用户使用最新的 `Portable.exe`，双击即可运行，不需要安装。
@@ -83,7 +83,7 @@ CODEX_QUOTA_CODEX_PATH
 
 ## 版本说明
 
-### 2.2.5
+### 2.2.6
 
 - 增加自动更新功能，启动后会自动检查新版本。
 - 有新版本时，托盘图标会显示小红点提醒。

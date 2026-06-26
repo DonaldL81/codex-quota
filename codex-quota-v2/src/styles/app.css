@@ -35,7 +35,8 @@ select {
   --ui-scale: 1;
   --width-scale: 1;
   --height-scale: 1;
-  --panel-bg: rgba(248, 249, 253, 0.9);
+  --panel-opacity: 0.9;
+  --panel-bg: rgba(248, 249, 253, var(--panel-opacity));
   --panel-text: #202531;
   --muted-text: #758092;
   --soft-text: #7f8794;
@@ -65,7 +66,7 @@ select {
 }
 
 .shell.dark-mode {
-  --panel-bg: rgba(5, 7, 10, 0.95);
+  --panel-bg: rgba(5, 7, 10, var(--panel-opacity));
   --panel-text: #f7fbff;
   --muted-text: #d7e2ef;
   --soft-text: #b8c5d5;
