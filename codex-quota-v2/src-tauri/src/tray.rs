@@ -34,6 +34,10 @@ const OPACITY_PRESETS: &[(u32, &str)] = &[
     (70, "70%"),
     (60, "60%"),
     (50, "50%"),
+    (40, "40%"),
+    (30, "30%"),
+    (20, "20%"),
+    (10, "10%"),
 ];
 type Color = [u8; 4];
 
@@ -133,6 +137,10 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let opacity_70 = opacity_item(app, 70, "70%", current_opacity)?;
     let opacity_60 = opacity_item(app, 60, "60%", current_opacity)?;
     let opacity_50 = opacity_item(app, 50, "50%", current_opacity)?;
+    let opacity_40 = opacity_item(app, 40, "40%", current_opacity)?;
+    let opacity_30 = opacity_item(app, 30, "30%", current_opacity)?;
+    let opacity_20 = opacity_item(app, 20, "20%", current_opacity)?;
+    let opacity_10 = opacity_item(app, 10, "10%", current_opacity)?;
     let opacity_menu = Submenu::with_items(
         app,
         format!("透明度 {}", opacity_label(current_opacity)),
@@ -144,9 +152,23 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &opacity_70,
             &opacity_60,
             &opacity_50,
+            &opacity_40,
+            &opacity_30,
+            &opacity_20,
+            &opacity_10,
         ],
     )?;
-    let check_update = MenuItem::with_id(app, "check-update", "检查更新", true, None::<&str>)?;
+    let check_update = MenuItem::with_id(
+        app,
+        "check-update",
+        if update_available(app) {
+            "更新到最新版本"
+        } else {
+            "检查更新"
+        },
+        true,
+        None::<&str>,
+    )?;
     let restart = MenuItem::with_id(app, "restart", "重启", true, None::<&str>)?;
     let version = MenuItem::with_id(
         app,
@@ -156,22 +178,29 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         None::<&str>,
     )?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-    let window_menu = Submenu::with_items(app, "窗口", true, &[&small, &large, &topmost])?;
-    let appearance_menu =
-        Submenu::with_items(app, "外观", true, &[&color_menu, &dark_mode, &opacity_menu])?;
-    let refresh_menu =
-        Submenu::with_items(app, "刷新与更新", true, &[&auto_refresh, &check_update])?;
-    let app_menu = Submenu::with_items(app, "应用", true, &[&autostart, &restart, &quit])?;
-    let separator = PredefinedMenuItem::separator(app)?;
+    let separator_1 = PredefinedMenuItem::separator(app)?;
+    let separator_2 = PredefinedMenuItem::separator(app)?;
+    let separator_3 = PredefinedMenuItem::separator(app)?;
+    let separator_4 = PredefinedMenuItem::separator(app)?;
 
     Menu::with_items(
         app,
         &[
-            &window_menu,
-            &appearance_menu,
-            &refresh_menu,
-            &app_menu,
-            &separator,
+            &small,
+            &large,
+            &topmost,
+            &separator_1,
+            &color_menu,
+            &dark_mode,
+            &opacity_menu,
+            &separator_2,
+            &auto_refresh,
+            &check_update,
+            &separator_3,
+            &autostart,
+            &restart,
+            &quit,
+            &separator_4,
             &version,
         ],
     )
@@ -247,6 +276,9 @@ pub fn set_update_available(app: &AppHandle, available: bool) -> tauri::Result<(
         }
         render_tray_state(app, &state)?;
     }
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        tray.set_menu(Some(build_menu(app)?))?;
+    }
     Ok(())
 }
 
@@ -307,7 +339,7 @@ pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
                 if let Some(color_scheme) = parse_color_scheme_menu_id(id) {
                     let dark_mode = dark_mode_checked(app);
                     let current_opacity = opacity(app);
-                    update_appearance_state(app, color_scheme, dark_mode, current_opacity);
+                    let _ = set_appearance(app, color_scheme, dark_mode, current_opacity);
                     let _ = app.emit("color-scheme-changed", color_scheme);
                 }
             }
@@ -315,20 +347,24 @@ pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
                 let next_dark_mode = !dark_mode_checked(app);
                 let color_scheme = color_scheme(app);
                 let current_opacity = opacity(app);
-                update_appearance_state(app, &color_scheme, next_dark_mode, current_opacity);
+                let _ = set_appearance(app, &color_scheme, next_dark_mode, current_opacity);
                 let _ = app.emit("dark-mode-changed", next_dark_mode);
             }
             id if id.starts_with("opacity-") => {
                 if let Some(next_opacity) = parse_opacity_menu_id(id) {
                     let color_scheme = color_scheme(app);
                     let dark_mode = dark_mode_checked(app);
-                    update_appearance_state(app, &color_scheme, dark_mode, next_opacity);
+                    let _ = set_appearance(app, &color_scheme, dark_mode, next_opacity);
                     let _ = app.emit("opacity-changed", next_opacity);
                 }
             }
             "check-update" => {
-                let _ = window::show_panel(app, "large");
-                let _ = app.emit("update-check-requested", ());
+                if update_available(app) {
+                    let _ = window::show_panel(app, "large");
+                    let _ = app.emit("update-download-requested", ());
+                } else {
+                    let _ = app.emit("update-check-requested", ());
+                }
             }
             "restart" => {
                 app.restart();
@@ -408,6 +444,18 @@ fn color_scheme(app: &AppHandle) -> String {
 fn dark_mode_checked(app: &AppHandle) -> bool {
     app.try_state::<AppearanceMenuState>()
         .and_then(|state| state.dark_mode.lock().ok().map(|dark_mode| *dark_mode))
+        .unwrap_or(false)
+}
+
+fn update_available(app: &AppHandle) -> bool {
+    app.try_state::<TrayVisualState>()
+        .and_then(|state| {
+            state
+                .update_available
+                .lock()
+                .ok()
+                .map(|update_available| *update_available)
+        })
         .unwrap_or(false)
 }
 

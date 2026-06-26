@@ -53,14 +53,14 @@
 
   type Status = "loading" | "ready" | "stale" | "error";
   type ColorScheme = "red" | "orange" | "yellow" | "green" | "cyan" | "blue" | "purple" | "black" | "white";
-  type PanelOpacity = 100 | 90 | 80 | 70 | 60 | 50;
+  type PanelOpacity = 100 | 90 | 80 | 70 | 60 | 50 | 40 | 30 | 20 | 10;
   type CurrentWindow = ReturnType<typeof getCurrentWindow>;
   type RawQuota = Partial<QuotaSnapshot> & Record<string, unknown>;
 
   const defaultAutoRefreshSeconds = 30;
   const autoRefreshPresets = [30, 60, 300, 600, 1200, 1800, 3600];
   const colorSchemes: ColorScheme[] = ["red", "orange", "yellow", "green", "cyan", "blue", "purple", "black", "white"];
-  const opacityPresets: PanelOpacity[] = [100, 90, 80, 70, 60, 50];
+  const opacityPresets: PanelOpacity[] = [100, 90, 80, 70, 60, 50, 40, 30, 20, 10];
   const visibleCacheSyncMs = 5_000;
   const invokeTimeoutMs = 35_000;
   const largeBaseWidth = 200;
@@ -99,6 +99,7 @@
   let updateErrorText = "";
   let updateSavedPath = "";
   let updateSavedFolder = "";
+  let updatePanelOpen = false;
   let toast = "";
   let toastTimer: number | undefined;
   let uiScale = 1;
@@ -120,7 +121,7 @@
   $: hasQuota = hasUsableQuota(displayQuota);
   $: subtitleText = makeSubtitle(displayQuota, lastRefreshText);
   $: statusMessage = makeStatusText(status, errorText, displayQuota, lastRefreshText);
-  $: updateVisible = !!updateInfo?.available || updateChecking || updateDownloading || !!updateErrorText || !!updateSavedPath;
+  $: updateVisible = updatePanelOpen && (updateChecking || updateDownloading || !!updateErrorText || !!updateSavedPath);
   $: updatePercent = clamp(Math.round(updateProgress?.percent ?? 0), 0, 100);
   $: scaleStyle = `--ui-scale:${uiScale.toFixed(3)};--width-scale:${widthScale.toFixed(3)};--height-scale:${heightScale.toFixed(3)};--panel-opacity:${(panelOpacity / 100).toFixed(2)};`;
   $: shellClass = `shell ${isSmall ? "small-mode" : "large-mode"} color-${colorScheme} ${darkMode ? "dark-mode" : ""}`;
@@ -166,6 +167,9 @@
     const unlistenRefresh = await listenSafe("quota-refresh-requested", refreshQuota);
     const unlistenUpdateCheck = await listenSafe("update-check-requested", () => {
       void checkForUpdates(true);
+    });
+    const unlistenUpdateDownload = await listenSafe("update-download-requested", () => {
+      void startUpdateDownload();
     });
     const unlistenUpdateProgress = await listenSafe<UpdateProgress>("update-progress", (event) => {
       updateProgress = event.payload;
@@ -215,6 +219,7 @@
       window.clearInterval(cacheSyncTimer);
       unlistenRefresh();
       unlistenUpdateCheck();
+      unlistenUpdateDownload();
       unlistenUpdateProgress();
       unlistenAutoRefresh();
       unlistenColorScheme();
@@ -376,6 +381,7 @@
 
   async function startUpdateDownload() {
     if (!updateInfo?.available || updateDownloading) return;
+    updatePanelOpen = true;
     updateDownloading = true;
     updateSavedPath = "";
     updateSavedFolder = "";
@@ -398,6 +404,7 @@
         if (!target) {
           updateDownloading = false;
           updateProgress = null;
+          updatePanelOpen = false;
           return;
         }
         updateSavedPath = await invoke<string>("download_portable_update", {
