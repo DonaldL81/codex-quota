@@ -20,11 +20,11 @@ Codex Skill 使用提示词：
 
 大窗模式：
 
-<img src="codex-quota-v2/assets/screenshots/large-window.png" alt="大窗模式" width="700">
+<img src="assets/large-window.png" alt="大窗模式" width="700">
 
 小窗模式：
 
-<img src="codex-quota-v2/assets/screenshots/small-window.png" alt="小窗模式" width="700">
+<img src="assets/small-window.png" alt="小窗模式" width="700">
 
 ## 特点
 
