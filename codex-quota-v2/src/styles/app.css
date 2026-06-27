@@ -484,16 +484,18 @@ button:active {
 }
 
 .status-overlay {
-  position: absolute;
-  right: clamp(10px, calc(10px * var(--width-scale)), 15px);
-  bottom: clamp(5px, calc(5px * var(--height-scale)), 9px);
-  left: clamp(10px, calc(10px * var(--width-scale)), 15px);
-  z-index: 15;
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
   overflow: hidden;
+  min-height: clamp(10px, calc(10px * var(--height-scale)), 13px);
+  margin: clamp(-5px, calc(-4px * var(--height-scale)), -2px)
+    clamp(10px, calc(10px * var(--width-scale)), 15px)
+    clamp(5px, calc(5px * var(--height-scale)), 8px);
   color: #d88900;
   font-size: clamp(8.5px, calc(8.5px * var(--ui-scale)), 11px);
   font-weight: 700;
-  line-height: 1;
+  line-height: clamp(10px, calc(10px * var(--height-scale)), 13px);
   pointer-events: none;
   text-align: center;
   text-overflow: ellipsis;
