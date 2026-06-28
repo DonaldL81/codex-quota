@@ -70,9 +70,13 @@ $productName $version
 Write-Host ""
 Write-Host "正在创建或更新 GitHub Release：$tagName"
 $releaseExists = $false
-gh release view $tagName --repo "DonaldL81/codex-quota" *> $null
-if ($LASTEXITCODE -eq 0) {
-  $releaseExists = $true
+try {
+  $releaseViewOutput = gh release view $tagName --repo "DonaldL81/codex-quota" 2>$null
+  if ($LASTEXITCODE -eq 0) {
+    $releaseExists = $true
+  }
+} catch {
+  $releaseExists = $false
 }
 
 if (-not $releaseExists) {

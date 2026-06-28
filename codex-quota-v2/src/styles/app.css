@@ -50,18 +50,30 @@ select {
   --accent-end: #6bdcff;
   --accent-glow: 32, 174, 232;
   position: relative;
+  isolation: isolate;
   display: flex;
   width: 100%;
   height: 100%;
   margin: 0;
   overflow: hidden;
   color: var(--panel-text);
-  background: var(--panel-bg);
+  background: transparent;
   border: 0;
   border-radius: 12px;
   box-shadow: none;
   cursor: default;
   user-select: none;
+}
+
+.shell::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--panel-bg);
+  content: "";
+  pointer-events: none;
+  transform: translateZ(0);
 }
 
 .shell.dark-mode {
@@ -177,6 +189,8 @@ select {
 }
 
 .topbar {
+  position: relative;
+  z-index: 1;
   height: clamp(24px, calc(24px * var(--height-scale)), 36px);
   padding: 0 clamp(10px, calc(10px * var(--width-scale)), 15px);
   justify-content: space-between;
@@ -284,6 +298,8 @@ button:active {
 }
 
 .quota-list {
+  position: relative;
+  z-index: 1;
   display: grid;
   flex: 1 1 auto;
   grid-template-rows: repeat(2, minmax(0, 1fr));
@@ -520,6 +536,8 @@ button:active {
 
 .small-mode .compact-row {
   display: flex;
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 100%;
   align-items: center;
