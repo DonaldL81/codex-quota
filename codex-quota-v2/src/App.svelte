@@ -907,6 +907,9 @@
     if (lower.includes("no rate limit data") || lower.includes("returned no rate limit")) {
       return "未读取到额度数据，请确认 Codex 已登录账号";
     }
+    if (lower.includes("temporary placeholder quota data")) {
+      return "Codex 返回了临时额度数据，已保留上次额度";
+    }
     if (lower.includes("closed before responding")) {
       return "Codex app-server 未返回数据，请确认 Codex 当前可用";
     }

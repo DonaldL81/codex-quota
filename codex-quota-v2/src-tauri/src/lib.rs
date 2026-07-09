@@ -12,6 +12,9 @@ async fn read_quota(app: AppHandle) -> Result<QuotaSnapshot, String> {
     let snapshot = quota::read_quota()
         .await
         .map_err(|error| error.to_string())?;
+    let previous = quota::read_cached_quota(&app);
+    quota::reject_suspicious_full_snapshot(&snapshot, previous.as_ref())
+        .map_err(|error| error.to_string())?;
     quota::write_cached_quota(&app, &snapshot);
     Ok(snapshot)
 }

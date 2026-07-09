@@ -14,7 +14,7 @@ use tokio::process::{Child, ChildStdout, Command};
 use tokio::time::timeout;
 
 const CLIENT_NAME: &str = "codex-quota-monitor-v2";
-const CLIENT_VERSION: &str = "2.2.9";
+const CLIENT_VERSION: &str = "2.3.0";
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(15);
 const CACHE_FILE: &str = "last-quota.json";
 #[cfg(windows)]
@@ -128,6 +128,30 @@ pub fn write_cached_quota(app: &AppHandle, snapshot: &QuotaSnapshot) {
     if let Ok(text) = serde_json::to_string(snapshot) {
         let _ = fs::write(path, text);
     }
+}
+
+pub fn reject_suspicious_full_snapshot(
+    snapshot: &QuotaSnapshot,
+    previous: Option<&QuotaSnapshot>,
+) -> Result<(), QuotaError> {
+    if is_suspicious_full_snapshot(snapshot, previous) {
+        return Err(QuotaError(
+            "Codex returned temporary placeholder quota data.".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn is_suspicious_full_snapshot(snapshot: &QuotaSnapshot, previous: Option<&QuotaSnapshot>) -> bool {
+    let Some(previous) = previous else {
+        return false;
+    };
+
+    snapshot.limit_name == previous.limit_name
+        && snapshot.plan_type == previous.plan_type
+        && snapshot.primary_remaining == 100
+        && snapshot.secondary_remaining == 100
+        && (previous.primary_remaining < 100 || previous.secondary_remaining < 100)
 }
 
 fn cache_file(app: &AppHandle) -> Option<PathBuf> {
@@ -353,5 +377,74 @@ mod tests {
         let snapshot = normalize_rate_limits(&payload).unwrap();
         assert_eq!(snapshot.primary_remaining, 100);
         assert_eq!(snapshot.secondary_remaining, 75);
+    }
+
+    #[test]
+    fn rejects_suspicious_full_snapshot_after_non_full_cache() {
+        let previous = QuotaSnapshot {
+            status: "ready".into(),
+            limit_name: "Codex".into(),
+            plan_type: "pro".into(),
+            updated_at: "01:20:00".into(),
+            primary_remaining: 99,
+            primary_reset: "04:20".into(),
+            secondary_remaining: 28,
+            secondary_reset: "7/14 09:43".into(),
+        };
+        let snapshot = QuotaSnapshot {
+            status: "ready".into(),
+            limit_name: "Codex".into(),
+            plan_type: "pro".into(),
+            updated_at: "01:23:10".into(),
+            primary_remaining: 100,
+            primary_reset: "04:20".into(),
+            secondary_remaining: 100,
+            secondary_reset: "7/15 11:40".into(),
+        };
+
+        let error = reject_suspicious_full_snapshot(&snapshot, Some(&previous)).unwrap_err();
+        assert!(error.0.contains("temporary placeholder quota data"));
+    }
+
+    #[test]
+    fn accepts_full_snapshot_without_previous_cache() {
+        let snapshot = QuotaSnapshot {
+            status: "ready".into(),
+            limit_name: "Codex".into(),
+            plan_type: "pro".into(),
+            updated_at: "01:23:10".into(),
+            primary_remaining: 100,
+            primary_reset: "04:20".into(),
+            secondary_remaining: 100,
+            secondary_reset: "7/15 11:40".into(),
+        };
+
+        reject_suspicious_full_snapshot(&snapshot, None).unwrap();
+    }
+
+    #[test]
+    fn accepts_full_snapshot_for_different_plan() {
+        let previous = QuotaSnapshot {
+            status: "ready".into(),
+            limit_name: "Codex".into(),
+            plan_type: "pro".into(),
+            updated_at: "01:20:00".into(),
+            primary_remaining: 99,
+            primary_reset: "04:20".into(),
+            secondary_remaining: 28,
+            secondary_reset: "7/14 09:43".into(),
+        };
+        let snapshot = QuotaSnapshot {
+            status: "ready".into(),
+            limit_name: "Codex".into(),
+            plan_type: "team".into(),
+            updated_at: "01:23:10".into(),
+            primary_remaining: 100,
+            primary_reset: "04:20".into(),
+            secondary_remaining: 100,
+            secondary_reset: "7/15 11:40".into(),
+        };
+
+        reject_suspicious_full_snapshot(&snapshot, Some(&previous)).unwrap();
     }
 }

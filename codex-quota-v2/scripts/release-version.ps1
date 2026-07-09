@@ -37,17 +37,36 @@ function Get-CargoTomlVersion {
   $match.Groups[1].Value
 }
 
+function Assert-ProjectVersionFormat {
+  param([Parameter(Mandatory = $true)][string]$Version)
+
+  if (-not ($Version -match '^\d{1,2}\.\d\.\d$')) {
+    throw "Version must be N.n.n or NN.n.n, and the last two segments must be single digits: $Version"
+  }
+}
+
 function Get-NextPatchVersion {
   param([Parameter(Mandatory = $true)][string]$Version)
 
+  Assert-ProjectVersionFormat -Version $Version
   $parts = $Version.Split(".")
-  if ($parts.Count -ne 3) {
-    throw "Version is not major.minor.patch: $Version"
-  }
-
   $major = [int]$parts[0]
   $minor = [int]$parts[1]
-  $patch = [int]$parts[2] + 1
+  $patch = [int]$parts[2]
+  if ($patch -lt 9) {
+    $patch += 1
+  } else {
+    $patch = 0
+    if ($minor -lt 9) {
+      $minor += 1
+    } else {
+      $minor = 0
+      $major += 1
+    }
+  }
+  if ($major -gt 99) {
+    throw "Version major segment cannot exceed two digits: $major"
+  }
   "$major.$minor.$patch"
 }
 
@@ -62,6 +81,7 @@ function Assert-VersionSync {
     throw "Version mismatch: package.json=$($package.version), tauri.conf.json=$($tauri.version), Cargo.toml=$cargoVersion"
   }
 
+  Assert-ProjectVersionFormat -Version $package.version
   $package.version
 }
 
@@ -71,6 +91,9 @@ function Set-ProjectVersion {
     [Parameter(Mandatory = $true)][string]$OldVersion,
     [Parameter(Mandatory = $true)][string]$NewVersion
   )
+
+  Assert-ProjectVersionFormat -Version $OldVersion
+  Assert-ProjectVersionFormat -Version $NewVersion
 
   $packagePath = Join-Path $ProjectRoot "package.json"
   $package = Read-JsonFile -Path $packagePath
@@ -172,7 +195,7 @@ function Invoke-ReleaseVersionPrompt {
   if ($BumpPatch) {
     $shouldBump = $true
   } elseif (-not $NoPrompt) {
-    $inputValue = Read-VersionPromptWithTimeout -Prompt "输入 1 自动升级 patch 版本；直接回车或输入其他内容保持当前版本" -TimeoutSeconds 10
+    $inputValue = Read-VersionPromptWithTimeout -Prompt "输入 1 自动升级到下一个版本；直接回车或输入其他内容保持当前版本" -TimeoutSeconds 10
     $shouldBump = $inputValue -eq "1"
   }
 

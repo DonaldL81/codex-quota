@@ -36,7 +36,7 @@ select {
   --width-scale: 1;
   --height-scale: 1;
   --panel-opacity: 0.9;
-  --panel-bg: rgba(248, 249, 253, var(--panel-opacity));
+  --panel-bg-rgb: 248, 249, 253;
   --panel-text: #202531;
   --muted-text: #758092;
   --soft-text: #7f8794;
@@ -70,14 +70,15 @@ select {
   z-index: 0;
   inset: 0;
   border-radius: inherit;
-  background: var(--panel-bg);
+  background: rgb(var(--panel-bg-rgb));
   content: "";
+  contain: paint;
+  opacity: var(--panel-opacity);
   pointer-events: none;
-  transform: translateZ(0);
 }
 
 .shell.dark-mode {
-  --panel-bg: rgba(5, 7, 10, var(--panel-opacity));
+  --panel-bg-rgb: 5, 7, 10;
   --panel-text: #f7fbff;
   --muted-text: #d7e2ef;
   --soft-text: #b8c5d5;
