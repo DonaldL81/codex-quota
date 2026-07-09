@@ -2,7 +2,7 @@
 
 一个轻量的 Windows 托盘小工具，用来查看 Codex 账号剩余额度。
 
-当前版本：`2.2.6`
+当前版本：`2.2.7`
 
 Codex Skill 使用提示词：
 
@@ -41,10 +41,10 @@ Codex Skill 使用提示词：
 
 ```text
 单文件免安装包：
-Codex Quota Monitor 2.2.6 Portable.exe
+Codex Quota Monitor 2.2.7 Portable.exe
 
 安装包：
-Codex Quota Monitor 2.2.6 Setup.exe
+Codex Quota Monitor 2.2.7 Setup.exe
 ```
 
 推荐普通用户使用最新的 `Portable.exe`，双击即可运行，不需要安装。
@@ -94,6 +94,11 @@ CODEX_QUOTA_CODEX_PATH
 便携版记录的是当前 EXE 路径。如果移动过 EXE 文件，请在右键菜单中关闭开机自启动，再重新开启。
 
 ## 版本说明
+
+### 2.2.7
+
+- 修复偶发额度显示为 100% 的问题。
+- Codex 返回临时不完整额度数据时，会保留上一次有效额度并提示暂时无法获取。
 
 ### 2.2.6
 

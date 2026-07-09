@@ -14,7 +14,7 @@ use tokio::process::{Child, ChildStdout, Command};
 use tokio::time::timeout;
 
 const CLIENT_NAME: &str = "codex-quota-monitor-v2";
-const CLIENT_VERSION: &str = "2.2.6";
+const CLIENT_VERSION: &str = "2.2.7";
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(15);
 const CACHE_FILE: &str = "last-quota.json";
 #[cfg(windows)]
@@ -251,8 +251,8 @@ fn normalize_rate_limits(payload: &Value) -> Result<QuotaSnapshot, QuotaError> {
         .or_else(|| payload.get("rateLimits"))
         .ok_or_else(|| QuotaError("Codex returned no rate limit data.".into()))?;
 
-    let primary = convert_window(snapshot.get("primary"));
-    let secondary = convert_window(snapshot.get("secondary"));
+    let primary = convert_window("primary", snapshot.get("primary"))?;
+    let secondary = convert_window("secondary", snapshot.get("secondary"))?;
     let limit_name = snapshot
         .get("limitName")
         .and_then(Value::as_str)
@@ -276,18 +276,22 @@ fn normalize_rate_limits(payload: &Value) -> Result<QuotaSnapshot, QuotaError> {
     })
 }
 
-fn convert_window(source: Option<&Value>) -> WindowQuota {
-    let Some(source) = source else {
-        return WindowQuota {
-            remaining: 0,
-            reset: "unknown".into(),
-        };
-    };
-
+fn convert_window(label: &str, source: Option<&Value>) -> Result<WindowQuota, QuotaError> {
+    let source = source
+        .ok_or_else(|| QuotaError(format!("Codex returned no {label} rate limit window.")))?;
     let used = source
         .get("usedPercent")
         .and_then(Value::as_f64)
-        .unwrap_or(0.0);
+        .ok_or_else(|| {
+            QuotaError(format!(
+                "Codex returned incomplete {label} rate limit data."
+            ))
+        })?;
+    if !(0.0..=100.0).contains(&used) {
+        return Err(QuotaError(format!(
+            "Codex returned invalid {label} usage percent: {used}."
+        )));
+    }
     let remaining = (100.0 - used).round().clamp(0.0, 100.0) as i64;
     let reset = source
         .get("resetsAt")
@@ -295,7 +299,7 @@ fn convert_window(source: Option<&Value>) -> WindowQuota {
         .map(format_reset_time)
         .unwrap_or_else(|| "unknown".into());
 
-    WindowQuota { remaining, reset }
+    Ok(WindowQuota { remaining, reset })
 }
 
 fn format_reset_time(epoch_seconds: i64) -> String {
@@ -308,5 +312,46 @@ fn format_reset_time(epoch_seconds: i64) -> String {
         local.format("%H:%M").to_string()
     } else {
         local.format("%-m/%-d %H:%M").to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn normalize_rate_limits_requires_used_percent() {
+        let payload = json!({
+            "rateLimitsByLimitId": {
+                "codex": {
+                    "limitName": "Codex",
+                    "planType": "pro",
+                    "primary": { "resetsAt": 1893456000 },
+                    "secondary": { "usedPercent": 40.0, "resetsAt": 1893456000 }
+                }
+            }
+        });
+
+        let error = normalize_rate_limits(&payload).unwrap_err();
+        assert!(error.0.contains("incomplete primary rate limit data"));
+    }
+
+    #[test]
+    fn normalize_rate_limits_accepts_explicit_zero_usage() {
+        let payload = json!({
+            "rateLimitsByLimitId": {
+                "codex": {
+                    "limitName": "Codex",
+                    "planType": "pro",
+                    "primary": { "usedPercent": 0.0, "resetsAt": 1893456000 },
+                    "secondary": { "usedPercent": 25.0, "resetsAt": 1893456000 }
+                }
+            }
+        });
+
+        let snapshot = normalize_rate_limits(&payload).unwrap();
+        assert_eq!(snapshot.primary_remaining, 100);
+        assert_eq!(snapshot.secondary_remaining, 75);
     }
 }
