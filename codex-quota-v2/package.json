@@ -1,6 +1,6 @@
 {
     "name":  "codex-quota-v2",
-    "version":  "2.2.7",
+    "version":  "2.2.9",
     "private":  true,
     "type":  "module",
     "scripts":  {
@@ -8,7 +8,7 @@
                     "frontend:build":  "vite build",
                     "tauri":  "tauri",
                     "start":  "tauri dev",
-                    "build":  "tauri build",
+                    "build":  "tauri build --no-bundle",
                     "build:portable":  "tauri build --no-bundle",
                     "typecheck":  "svelte-check --tsconfig ./tsconfig.json"
                 },

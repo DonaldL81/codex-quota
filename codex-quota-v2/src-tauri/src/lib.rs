@@ -98,8 +98,12 @@ fn update_tray_quota(app: AppHandle, state: TrayQuotaState) -> Result<(), String
 }
 
 #[tauri::command]
-fn set_update_available(app: AppHandle, available: bool) -> Result<(), String> {
-    tray::set_update_available(&app, available).map_err(|error| error.to_string())
+fn set_update_available(
+    app: AppHandle,
+    available: bool,
+    latest_version: Option<String>,
+) -> Result<(), String> {
+    tray::set_update_available(&app, available, latest_version).map_err(|error| error.to_string())
 }
 
 pub fn run() {
@@ -119,6 +123,9 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            if updates::prepare_portable_runtime(app.handle()) {
+                return Ok(());
+            }
             window::init_state(app.handle())?;
             tray::init_tray(app.handle())?;
             if let Some(window) = app.get_webview_window("main") {
@@ -143,8 +150,7 @@ pub fn run() {
             update_tray_quota,
             set_update_available,
             updates::check_update,
-            updates::download_portable_update,
-            updates::download_installer_update
+            updates::download_portable_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running Codex Quota Monitor");

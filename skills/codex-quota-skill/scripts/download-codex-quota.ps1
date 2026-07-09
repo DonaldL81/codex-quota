@@ -1,6 +1,4 @@
 param(
-  [ValidateSet("Portable", "Setup")]
-  [string]$Kind = "Portable",
   [string]$OutputDir = "",
   [switch]$NoRun,
   [switch]$Force,
@@ -15,8 +13,10 @@ $repo = "DonaldL81/codex-quota"
 $branch = "main"
 $rawBaseUrl = "https://raw.githubusercontent.com/$repo/$branch"
 $readmeUrl = "$rawBaseUrl/README.md"
+$updaterUrl = "$rawBaseUrl/codex-quota-v2/scripts/portable-updater.ps1"
 $userAgent = "codex-quota-skill"
 $appDirName = "Codex Quota Monitor"
+$stablePortableName = "Codex Quota Monitor.exe"
 
 function Resolve-OutputDir {
   param([string]$Value)
@@ -58,13 +58,9 @@ function Get-CurrentVersion {
 }
 
 function New-PackageInfo {
-  param(
-    [Parameter(Mandatory = $true)][string]$Version,
-    [Parameter(Mandatory = $true)][string]$Kind
-  )
+  param([Parameter(Mandatory = $true)][string]$Version)
 
-  $suffix = if ($Kind -eq "Setup") { "Setup.exe" } else { "Portable.exe" }
-  $name = "Codex Quota Monitor $Version $suffix"
+  $name = "Codex Quota Monitor $Version Portable.exe"
   $url = "$rawBaseUrl/$([uri]::EscapeDataString($name))"
 
   [pscustomobject]@{
@@ -75,62 +71,32 @@ function New-PackageInfo {
   }
 }
 
-function Get-CodexQuotaProcesses {
-  Get-Process -ErrorAction SilentlyContinue |
-    Where-Object {
-      $_.ProcessName -like "Codex Quota Monitor*" -or
-      ($_.Path -and ([System.IO.Path]::GetFileName($_.Path) -like "Codex Quota Monitor*.exe"))
-    }
-}
-
-function Stop-CodexQuotaProcesses {
-  param([string]$TargetPath)
-
-  $closed = 0
-  $processes = @(Get-CodexQuotaProcesses)
-  foreach ($process in $processes) {
-    try {
-      if ($process.CloseMainWindow()) {
-        $null = $process.WaitForExit(3000)
-      }
-      if (-not $process.HasExited) {
-        Stop-Process -Id $process.Id -Force -ErrorAction Stop
-      }
-      $closed += 1
-    } catch {
-      Write-Host "Warning: failed to close running process $($process.Id): $($_.Exception.Message)"
-    }
-  }
-
-  return $closed
-}
-
-function New-DesktopShortcut {
-  param(
-    [Parameter(Mandatory = $true)][string]$TargetPath,
-    [Parameter(Mandatory = $true)][string]$ShortcutName
+function Get-PortableUpdaterPath {
+  $candidates = @(
+    (Join-Path $PSScriptRoot "portable-updater.ps1"),
+    (Join-Path $PSScriptRoot "..\..\..\codex-quota-v2\scripts\portable-updater.ps1")
   )
 
-  $desktop = [Environment]::GetFolderPath("Desktop")
-  if (-not $desktop -or -not (Test-Path -LiteralPath $desktop)) {
-    return $false
+  foreach ($candidate in $candidates) {
+    if (Test-Path -LiteralPath $candidate) {
+      return (Resolve-Path -LiteralPath $candidate).Path
+    }
   }
 
-  $shortcutPath = Join-Path $desktop $ShortcutName
-  $shell = New-Object -ComObject WScript.Shell
-  $shortcut = $shell.CreateShortcut($shortcutPath)
-  $shortcut.TargetPath = $TargetPath
-  $shortcut.WorkingDirectory = Split-Path -Parent $TargetPath
-  $shortcut.IconLocation = $TargetPath
-  $shortcut.Save()
-  return $true
+  $cacheDir = Join-Path $env:TEMP "codex-quota-skill"
+  if (-not (Test-Path -LiteralPath $cacheDir)) {
+    New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
+  }
+  $updaterPath = Join-Path $cacheDir "portable-updater.ps1"
+  Invoke-WebRequest -Uri $updaterUrl -OutFile $updaterPath -Headers @{ "User-Agent" = $userAgent } -UseBasicParsing
+  return $updaterPath
 }
 
 function Test-RunningTarget {
   param([string]$TargetPath)
 
   $resolvedTarget = [System.IO.Path]::GetFullPath($TargetPath)
-  $processes = @(Get-CodexQuotaProcesses | Where-Object {
+  $processes = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
     $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -eq $resolvedTarget)
   })
   return ($processes.Count -gt 0)
@@ -142,67 +108,81 @@ if (-not (Test-Path -LiteralPath $targetDir)) {
 }
 
 $currentVersion = Get-CurrentVersion
-$asset = New-PackageInfo -Version $currentVersion -Kind $Kind
-$targetPath = Join-Path $targetDir $asset.Name
-$existsBefore = Test-Path -LiteralPath $targetPath
+$asset = New-PackageInfo -Version $currentVersion
+$packagePath = Join-Path $targetDir $asset.Name
+$stablePortablePath = Join-Path $targetDir $stablePortableName
+$existsBefore = Test-Path -LiteralPath $packagePath
 $downloaded = $false
-$closedProcesses = 0
-
-if ($LaunchOnly -and (-not $existsBefore)) {
-  throw "Target does not exist for launch-only mode: $targetPath"
-}
-
-if ((-not $existsBefore) -or $Force) {
-  if ($Force -and $existsBefore -and (-not $NoRun) -and (-not $KeepRunning)) {
-    $closedProcesses = Stop-CodexQuotaProcesses -TargetPath $targetPath
-  }
-
-  Write-Host "Version: $($asset.Version)"
-  Write-Host "Source: $($asset.Source)"
-  Write-Host "Package: $Kind"
-  Write-Host "Downloading: $($asset.Name)"
-  Write-Host "Target: $targetPath"
-
-  Invoke-WebRequest -Uri $asset.Url -OutFile $targetPath -Headers @{ "User-Agent" = $userAgent }
-  $downloaded = $true
-} else {
-  Write-Host "Version: $($asset.Version)"
-  Write-Host "Package: $Kind"
-  Write-Host "Using existing file: $targetPath"
-}
-
-$file = Get-Item -LiteralPath $targetPath
-if ($file.Length -lt 102400) {
-  throw "Downloaded file is unexpectedly small: $($file.Length) bytes."
-}
-
-$shortcutCreated = $false
-if (($Kind -eq "Portable") -and (-not $NoShortcut)) {
-  $shortcutCreated = New-DesktopShortcut -TargetPath $targetPath -ShortcutName "Codex Quota Monitor.lnk"
-}
-
 $launched = $false
 $runningProcess = $false
-if (-not $NoRun) {
-  if (-not $KeepRunning) {
-    $closedProcesses = Stop-CodexQuotaProcesses -TargetPath $targetPath
-  }
 
-  Start-Process -FilePath $targetPath | Out-Null
+if ($LaunchOnly) {
+  if (-not (Test-Path -LiteralPath $stablePortablePath)) {
+    throw "Target does not exist for launch-only mode: $stablePortablePath"
+  }
+  Start-Process -FilePath $stablePortablePath | Out-Null
   $launched = $true
   Start-Sleep -Seconds 1
-  $runningProcess = Test-RunningTarget -TargetPath $targetPath
+  $runningProcess = Test-RunningTarget -TargetPath $stablePortablePath
+} else {
+  if ((-not $existsBefore) -or $Force) {
+    Write-Host "Version: $($asset.Version)"
+    Write-Host "Source: $($asset.Source)"
+    Write-Host "Package: Portable"
+    Write-Host "Downloading: $($asset.Name)"
+    Write-Host "Target: $packagePath"
+
+    Invoke-WebRequest -Uri $asset.Url -OutFile $packagePath -Headers @{ "User-Agent" = $userAgent } -UseBasicParsing
+    $downloaded = $true
+  } else {
+    Write-Host "Version: $($asset.Version)"
+    Write-Host "Package: Portable"
+    Write-Host "Using existing file: $packagePath"
+  }
+
+  $packageFile = Get-Item -LiteralPath $packagePath
+  if ($packageFile.Length -lt 102400) {
+    throw "Downloaded file is unexpectedly small: $($packageFile.Length) bytes."
+  }
+
+  if (-not $NoRun) {
+    $updaterPath = Get-PortableUpdaterPath
+    $updaterArgs = @(
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      $updaterPath,
+      "-Source",
+      $packagePath,
+      "-Target",
+      $stablePortablePath
+    )
+    if ($KeepRunning) {
+      $updaterArgs += "-KeepRunning"
+    }
+    if ($NoShortcut) {
+      $updaterArgs += "-NoShortcut"
+    }
+    & powershell @updaterArgs
+    if ($LASTEXITCODE -ne 0) {
+      throw "Portable updater failed."
+    }
+    $launched = $true
+    Start-Sleep -Seconds 1
+    $runningProcess = Test-RunningTarget -TargetPath $stablePortablePath
+  }
 }
+
+$reportedPath = if ($NoRun) { $packagePath } else { $stablePortablePath }
+$reportedFile = Get-Item -LiteralPath $reportedPath
 
 Write-Host ""
 Write-Host "Downloaded: $downloaded"
 Write-Host "ExistingFileUsed: $($existsBefore -and (-not $Force))"
-Write-Host "Path: $targetPath"
-Write-Host "SizeBytes: $($file.Length)"
-Write-Host "ShortcutCreated: $shortcutCreated"
-Write-Host "ClosedRunningProcesses: $closedProcesses"
+Write-Host "PackagePath: $packagePath"
+Write-Host "Path: $reportedPath"
+Write-Host "SizeBytes: $($reportedFile.Length)"
+Write-Host "NoShortcutRequested: $NoShortcut"
 Write-Host "Launched: $launched"
 Write-Host "RunningProcess: $runningProcess"
-if (($Kind -eq "Setup") -and $launched) {
-  Write-Host "Note: Windows may ask for administrator permission."
-}

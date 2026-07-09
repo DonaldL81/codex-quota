@@ -61,6 +61,7 @@ struct TrayVisualState {
     status: Mutex<String>,
     update_available: Mutex<bool>,
     update_checked: Mutex<bool>,
+    latest_version: Mutex<Option<String>>,
 }
 
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
@@ -168,7 +169,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     )?;
     let update_available = update_available(app);
     let version_label = if update_available {
-        "更新到最新版本".to_string()
+        update_version_label(app)
     } else if update_checked(app) {
         format!("版本 {}（最新）", display_version())
     } else {
@@ -267,13 +268,22 @@ pub fn set_appearance(
     Ok(())
 }
 
-pub fn set_update_available(app: &AppHandle, available: bool) -> tauri::Result<()> {
+pub fn set_update_available(
+    app: &AppHandle,
+    available: bool,
+    latest_version: Option<String>,
+) -> tauri::Result<()> {
     if let Some(state) = app.try_state::<TrayVisualState>() {
         if let Ok(mut current) = state.update_available.lock() {
             *current = available;
         }
         if let Ok(mut current) = state.update_checked.lock() {
             *current = true;
+        }
+        if let Ok(mut current) = state.latest_version.lock() {
+            *current = available
+                .then(|| latest_version.unwrap_or_default())
+                .filter(|value| !value.is_empty());
         }
         render_tray_state(app, &state)?;
     }
@@ -316,6 +326,7 @@ pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
         status: Mutex::new("idle".into()),
         update_available: Mutex::new(false),
         update_checked: Mutex::new(false),
+        latest_version: Mutex::new(None),
     });
 
     let menu = build_menu(app)?;
@@ -479,6 +490,22 @@ fn update_checked(app: &AppHandle) -> bool {
                 .map(|update_checked| *update_checked)
         })
         .unwrap_or(false)
+}
+
+fn latest_version(app: &AppHandle) -> Option<String> {
+    app.try_state::<TrayVisualState>().and_then(|state| {
+        state
+            .latest_version
+            .lock()
+            .ok()
+            .and_then(|latest_version| latest_version.clone())
+    })
+}
+
+fn update_version_label(app: &AppHandle) -> String {
+    latest_version(app)
+        .map(|version| format!("{} » {}", display_version(), version))
+        .unwrap_or_else(|| "更新到最新版本".to_string())
 }
 
 fn opacity(app: &AppHandle) -> u32 {

@@ -2,7 +2,7 @@
 
 一个轻量的 Windows 托盘小工具，用来查看 Codex 账号剩余额度。
 
-当前版本：`2.2.7`
+当前版本：`2.2.9`
 
 Codex Skill 使用提示词：
 
@@ -10,11 +10,7 @@ Codex Skill 使用提示词：
 安装 https://github.com/DonaldL81/codex-quota/tree/main/skills/codex-quota-skill
 ```
 
-默认会安装到当前用户程序目录，创建桌面快捷方式，并启动最新版。如需安装包，可以对 Codex 说：
-
-```text
-使用 https://github.com/DonaldL81/codex-quota/tree/main/skills/codex-quota-skill 下载安装版
-```
+默认会安装到当前用户程序目录，并启动最新版。
 
 ## 界面预览
 
@@ -37,18 +33,14 @@ Codex Skill 使用提示词：
 
 ## 下载和运行
 
-仓库根目录提供两个版本：
+仓库根目录提供单文件版：
 
 ```text
 单文件免安装包：
-Codex Quota Monitor 2.2.7 Portable.exe
-
-安装包：
-Codex Quota Monitor 2.2.7 Setup.exe
+Codex Quota Monitor 2.2.9 Portable.exe
 ```
 
-推荐普通用户使用最新的 `Portable.exe`，双击即可运行，不需要安装。
-如果希望固定安装到系统中，可以使用 `Setup.exe`。
+推荐普通用户使用最新的 `Portable.exe`，双击即可运行。首次运行后会自动固定到当前用户程序目录，并维护桌面快捷方式。
 
 使用前需要：
 
@@ -94,6 +86,20 @@ CODEX_QUOTA_CODEX_PATH
 便携版记录的是当前 EXE 路径。如果移动过 EXE 文件，请在右键菜单中关闭开机自启动，再重新开启。
 
 ## 版本说明
+
+### 2.2.9
+
+- 停止维护安装版，只保留单文件版。
+- 优化单文件版更新体验，下载完成后会自动更新并重启。
+- 首次运行或升级后会自动维护稳定入口和桌面快捷方式。
+- 更新中会使用全窗口进度层，不再露出底层额度内容。
+
+### 2.2.8
+
+- 优化便携版更新体验，更新后会使用稳定程序入口并自动重启。
+- 桌面快捷方式会指向稳定程序入口，后续更新不再依赖旧版本文件名。
+- 有新版本时，右键菜单会显示“当前版本 » 最新版本”。
+- 修复更新完成后打开所在文件夹失败的问题。
 
 ### 2.2.7
 

@@ -15,7 +15,7 @@ if ($env:CODEX_QUOTA_BUMP_VERSION -eq "1") {
 } else {
   $selectedVersion = Invoke-ReleaseVersionPrompt -ProjectRoot $projectRoot
 }
-Write-Host "正在打包 Codex 额度监控 $selectedVersion 正式安装包和便携版 EXE..."
+Write-Host "正在打包 Codex 额度监控 $selectedVersion 单文件版 EXE..."
 
 $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
 if ((Test-Path $cargoBin) -and ($env:Path -notlike "*$cargoBin*")) {
@@ -97,22 +97,6 @@ if (Test-Path -LiteralPath $repoPortable) {
 }
 Copy-Item -LiteralPath $sourceExe -Destination $repoPortable -Force
 
-$nsisDir = Join-Path $projectRoot "src-tauri\target\release\bundle\nsis"
-$setupExe = Get-ChildItem -LiteralPath $nsisDir -Filter ("{0}_{1}_*_setup.exe" -f $productName, $version) -ErrorAction SilentlyContinue |
-  Sort-Object LastWriteTime -Descending |
-  Select-Object -First 1
-if (-not $setupExe) {
-  $setupExe = Get-ChildItem -LiteralPath $nsisDir -Filter ("{0}_{1}_*setup.exe" -f $productName, $version) -ErrorAction SilentlyContinue |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 1
-}
-if (-not $setupExe) {
-  throw "正式安装包不存在：$nsisDir"
-}
-
-$repoSetup = Join-Path $repoRoot ("{0} {1} Setup.exe" -f $productName, $version)
-Copy-Item -LiteralPath $setupExe.FullName -Destination $repoSetup -Force
-
 $portableOutDir = Join-Path $projectRoot "dist-portable"
 if (Test-Path -LiteralPath $portableOutDir) {
   Remove-Item -LiteralPath $portableOutDir -Recurse -Force
@@ -125,6 +109,5 @@ if (Test-Path -LiteralPath $bundleDir) {
 Write-Host ""
 Write-Host "已输出到仓库根目录："
 Write-Host $repoPortable
-Write-Host $repoSetup
 Write-Host ""
-Write-Host "提示：便携版复用本次正式版编译产物；子目录打包产物已清理。"
+Write-Host "提示：当前只维护单文件版；子目录打包产物已清理。"

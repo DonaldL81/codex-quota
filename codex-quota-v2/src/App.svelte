@@ -4,8 +4,6 @@
   import { listen, type Event as TauriEvent } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
-  import { save } from "@tauri-apps/plugin-dialog";
-  import { open } from "@tauri-apps/plugin-shell";
 
   type QuotaSnapshot = {
     status: string;
@@ -36,10 +34,7 @@
     latestVersion: string;
     releaseUrl: string;
     portableAssetUrl?: string | null;
-    setupAssetUrl?: string | null;
     portableFileName?: string | null;
-    setupFileName?: string | null;
-    packageKind: "portable" | "installer";
     message: string;
   };
 
@@ -97,8 +92,6 @@
   let updateDownloading = false;
   let updateProgress: UpdateProgress | null = null;
   let updateErrorText = "";
-  let updateSavedPath = "";
-  let updateSavedFolder = "";
   let updatePanelOpen = false;
   let toast = "";
   let toastTimer: number | undefined;
@@ -121,7 +114,7 @@
   $: hasQuota = hasUsableQuota(displayQuota);
   $: subtitleText = makeSubtitle(displayQuota, lastRefreshText);
   $: statusMessage = makeStatusText(status, errorText, displayQuota, lastRefreshText);
-  $: updateVisible = updatePanelOpen && (updateChecking || updateDownloading || !!updateErrorText || !!updateSavedPath);
+  $: updateVisible = updatePanelOpen && (updateChecking || updateDownloading || !!updateErrorText || !!updateInfo?.available);
   $: updatePercent = clamp(Math.round(updateProgress?.percent ?? 0), 0, 100);
   $: scaleStyle = `--ui-scale:${uiScale.toFixed(3)};--width-scale:${widthScale.toFixed(3)};--height-scale:${heightScale.toFixed(3)};--panel-opacity:${(panelOpacity / 100).toFixed(2)};`;
   $: shellClass = `shell ${isSmall ? "small-mode" : "large-mode"} color-${colorScheme} ${darkMode ? "dark-mode" : ""}`;
@@ -348,9 +341,12 @@
     }
   }
 
-  async function setTrayUpdateAvailable(available: boolean) {
+  async function setTrayUpdateAvailable(available: boolean, latestVersion = "") {
     try {
-      await invoke("set_update_available", { available });
+      await invoke("set_update_available", {
+        available,
+        latestVersion: latestVersion || null
+      });
     } catch {
       // The in-window update state remains usable even if the tray badge cannot refresh.
     }
@@ -367,7 +363,7 @@
         "检查更新超时"
       );
       updateInfo = nextInfo;
-      await setTrayUpdateAvailable(nextInfo.available);
+      await setTrayUpdateAvailable(nextInfo.available, nextInfo.latestVersion);
       if (manual) {
         showToast(nextInfo.message);
       }
@@ -383,8 +379,6 @@
     if (!updateInfo?.available || updateDownloading) return;
     updatePanelOpen = true;
     updateDownloading = true;
-    updateSavedPath = "";
-    updateSavedFolder = "";
     updateErrorText = "";
     updateProgress = {
       phase: "downloading",
@@ -395,30 +389,11 @@
     };
 
     try {
-      if (updateInfo.packageKind === "portable") {
-        if (!updateInfo.portableAssetUrl) throw new Error("未找到便携版更新文件");
-        const target = await save({
-          defaultPath: updateInfo.portableFileName || `Codex Quota Monitor ${updateInfo.latestVersion} Portable.exe`,
-          filters: [{ name: "EXE", extensions: ["exe"] }]
-        });
-        if (!target) {
-          updateDownloading = false;
-          updateProgress = null;
-          updatePanelOpen = false;
-          return;
-        }
-        updateSavedPath = await invoke<string>("download_portable_update", {
-          url: updateInfo.portableAssetUrl,
-          savePath: target
-        });
-        updateSavedFolder = folderFromPath(updateSavedPath);
-        showToast("便携版更新已保存");
-      } else {
-        if (!updateInfo.setupAssetUrl) throw new Error("未找到正式安装包更新文件");
-        await invoke<string>("download_installer_update", {
-          url: updateInfo.setupAssetUrl
-        });
-      }
+      if (!updateInfo.portableAssetUrl) throw new Error("未找到便携版更新文件");
+      await invoke<string>("download_portable_update", {
+        url: updateInfo.portableAssetUrl,
+        fileName: updateInfo.portableFileName || null
+      });
     } catch (error) {
       updateErrorText = friendlyUpdateError(error);
       showToast(updateErrorText);
@@ -429,13 +404,10 @@
     }
   }
 
-  async function openUpdateSavedFolder() {
-    if (!updateSavedFolder) return;
-    try {
-      await open(updateSavedFolder);
-    } catch {
-      showToast("无法打开所在文件夹");
-    }
+  function closeUpdatePanel() {
+    updatePanelOpen = false;
+    updateErrorText = "";
+    updateProgress = null;
   }
 
   async function switchMode(nextMode: "small" | "large") {
@@ -832,13 +804,11 @@
     if (updateChecking) return "正在检查";
     if (updateDownloading) return updateProgress?.message || "正在下载";
     if (!updateInfo?.available) return "检查更新";
-    if (updateInfo.packageKind === "portable") return "下载并保存";
     return "下载并更新";
   }
 
   function updateDetailText() {
     if (updateErrorText) return updateErrorText;
-    if (updateSavedPath) return `已保存：${updateSavedPath}`;
     if (updateDownloading) return updateProgressLine();
     if (updateInfo?.available) return `发现新版本 ${updateInfo.latestVersion}`;
     if (updateInfo) return updateInfo.message;
@@ -850,11 +820,11 @@
     const raw = String(error || "").trim();
     if (!raw) return "下载中断，请重新下载";
     const lower = raw.toLowerCase();
-    if (lower.includes("未找到便携版更新文件") || lower.includes("未找到正式安装包更新文件")) {
+    if (lower.includes("未找到便携版更新文件")) {
       return "新版本暂不可下载";
     }
-    if (lower.includes("无法启动安装程序") || lower.includes("安装程序启动失败")) {
-      return "安装失败，请手动下载";
+    if (lower.includes("无法启动便携版更新")) {
+      return "更新程序启动失败，请手动下载";
     }
     if (lower.includes("检查更新") || lower.includes("timeout") || lower.includes("超时")) {
       return "无法检查更新，请稍后重试";
@@ -870,13 +840,6 @@
       return "下载中断，请重新下载";
     }
     return raw;
-  }
-
-  function folderFromPath(path: string) {
-    const normalized = path.replace(/\\/g, "/");
-    const index = normalized.lastIndexOf("/");
-    if (index <= 0) return "";
-    return path.slice(0, index);
   }
 
   function makeSubtitle(currentQuota: QuotaSnapshot | null, refreshText: string) {
@@ -1099,15 +1062,14 @@
       <div class="update-meter">
         <div class="update-meter-fill" style={`width:${updatePercent}%`}></div>
       </div>
-      <button
-        class="update-button"
-        title={updateSavedFolder ? "打开所在文件夹" : updateActionText()}
-        aria-label={updateSavedFolder ? "打开所在文件夹" : updateActionText()}
-        disabled={updateChecking || updateDownloading}
-        on:click={updateSavedFolder ? openUpdateSavedFolder : updateInfo?.available ? startUpdateDownload : () => checkForUpdates(true)}
-      >
-        {updateSavedFolder ? "打开" : updateInfo?.available ? (updateInfo.packageKind === "portable" ? "保存" : "更新") : "检查"}
-      </button>
+      {#if updateErrorText}
+        <div class="update-actions">
+          <button class="update-button" title="重试" aria-label="重试" on:click={startUpdateDownload}>重试</button>
+          <button class="update-button" title="关闭" aria-label="关闭" on:click={closeUpdatePanel}>关闭</button>
+        </div>
+      {:else if updateInfo?.available && !updateDownloading}
+        <button class="update-button" title="更新" aria-label="更新" on:click={startUpdateDownload}>更新</button>
+      {/if}
     </section>
   {/if}
 

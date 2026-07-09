@@ -311,16 +311,16 @@ button:active {
 
 .update-panel {
   position: absolute;
-  z-index: 20;
-  top: clamp(24px, calc(24px * var(--height-scale)), 36px);
-  right: clamp(8px, calc(8px * var(--width-scale)), 13px);
-  left: clamp(8px, calc(8px * var(--width-scale)), 13px);
+  z-index: 30;
+  inset: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 3px 7px;
-  align-items: center;
-  padding: 5px 7px;
-  border-radius: 8px;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: center;
+  gap: 8px;
+  justify-items: stretch;
+  padding: clamp(15px, calc(16px * var(--height-scale)), 26px)
+    clamp(15px, calc(17px * var(--width-scale)), 26px);
+  border-radius: inherit;
   background: rgba(248, 249, 253, 0.94);
   box-shadow: 0 8px 18px rgba(20, 28, 38, 0.12);
   pointer-events: auto;
@@ -333,6 +333,7 @@ button:active {
 
 .update-copy {
   min-width: 0;
+  text-align: center;
 }
 
 .update-copy strong,
@@ -345,19 +346,19 @@ button:active {
 
 .update-copy strong {
   color: var(--panel-text);
-  font-size: clamp(9px, calc(9px * var(--ui-scale)), 12px);
-  line-height: 1.15;
+  font-size: clamp(12px, calc(12px * var(--ui-scale)), 16px);
+  line-height: 1.2;
 }
 
 .update-copy span {
   color: var(--soft-text);
-  font-size: clamp(8px, calc(8px * var(--ui-scale)), 11px);
+  font-size: clamp(9px, calc(9px * var(--ui-scale)), 12px);
   line-height: 1.2;
 }
 
 .update-meter {
-  grid-column: 1 / -1;
-  height: clamp(4px, calc(4px * var(--ui-scale)), 7px);
+  width: 100%;
+  height: clamp(5px, calc(5px * var(--ui-scale)), 8px);
   overflow: visible;
   border-radius: 999px;
   background: var(--meter-track);
@@ -375,7 +376,14 @@ button:active {
   transition: width 180ms ease;
 }
 
+.update-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
 .update-button {
+  justify-self: center;
   width: auto;
   min-width: clamp(34px, calc(34px * var(--ui-scale)), 46px);
   height: clamp(18px, calc(18px * var(--ui-scale)), 24px);

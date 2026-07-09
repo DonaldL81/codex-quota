@@ -107,13 +107,17 @@ function Test-WebView2Runtime {
 }
 
 function Get-PortableProcesses {
-  param([Parameter(Mandatory = $true)][string]$PortableExe)
+  param(
+    [Parameter(Mandatory = $true)][string]$PortableExe,
+    [string]$StableExe = ""
+  )
 
   $portablePath = (Resolve-Path -LiteralPath $PortableExe).Path
+  $stablePath = if ($StableExe -and (Test-Path -LiteralPath $StableExe)) { (Resolve-Path -LiteralPath $StableExe).Path } else { "" }
   $matches = @()
   foreach ($process in Get-Process -ErrorAction SilentlyContinue) {
     try {
-      if ($process.Path -eq $portablePath) {
+      if ($process.Path -eq $portablePath -or ($stablePath -and $process.Path -eq $stablePath)) {
         $matches += $process
       }
     } catch {
@@ -124,13 +128,17 @@ function Get-PortableProcesses {
 }
 
 function Test-PortableStartup {
-  param([Parameter(Mandatory = $true)][string]$PortableExe)
+  param(
+    [Parameter(Mandatory = $true)][string]$PortableExe,
+    [Parameter(Mandatory = $true)][string]$StableExe
+  )
 
   if (-not (Test-Path -LiteralPath $PortableExe)) {
     throw "便携版 EXE 不存在：$PortableExe"
   }
 
-  $existing = @(Get-PortableProcesses -PortableExe $PortableExe)
+  $existing = @(Get-PortableProcesses -PortableExe $PortableExe -StableExe $StableExe)
+  $existingIds = @($existing | ForEach-Object { $_.Id })
   if ($existing.Count -gt 0) {
     $p = $existing | Select-Object -First 1
     if ($p.MainWindowHandle -ne 0) {
@@ -146,7 +154,16 @@ function Test-PortableStartup {
       Start-Sleep -Milliseconds 500
       $current = Get-Process -Id $process.Id -ErrorAction SilentlyContinue
       if (-not $current) {
-        throw "启动后进程已退出。"
+        $migrated = @(Get-PortableProcesses -PortableExe $PortableExe -StableExe $StableExe |
+          Where-Object { $existingIds -notcontains $_.Id })
+        if ($migrated.Count -gt 0) {
+          $p = $migrated | Select-Object -First 1
+          if ($p.MainWindowHandle -ne 0) {
+            return "启动成功并迁移到稳定入口：PID $($p.Id)，窗口句柄 $($p.MainWindowHandle)"
+          }
+          return "启动成功并迁移到稳定入口：PID $($p.Id)，托盘/无边框窗口未暴露主窗口句柄。"
+        }
+        continue
       }
       if ($current.MainWindowHandle -ne 0) {
         return "启动成功：PID $($current.Id)，窗口句柄 $($current.MainWindowHandle)"
@@ -159,8 +176,9 @@ function Test-PortableStartup {
     throw "启动后 10 秒内未检测到运行中的进程。"
   } finally {
     if ($startedByScript) {
-      $current = Get-Process -Id $process.Id -ErrorAction SilentlyContinue
-      if ($current) {
+      $created = @(Get-PortableProcesses -PortableExe $PortableExe -StableExe $StableExe |
+        Where-Object { $existingIds -notcontains $_.Id })
+      foreach ($current in $created) {
         Stop-Process -Id $current.Id -Force -ErrorAction SilentlyContinue
       }
     }
@@ -357,7 +375,7 @@ try {
 
   $repoRoot = Resolve-Path (Join-Path $projectRoot "..")
   $portableExe = Join-Path $repoRoot ("{0} {1} Portable.exe" -f $tauriConfig.productName, $tauriConfig.version)
-  $setupExe = Join-Path $repoRoot ("{0} {1} Setup.exe" -f $tauriConfig.productName, $tauriConfig.version)
+  $stableExe = Join-Path (Join-Path (Join-Path $env:LOCALAPPDATA "Programs") $tauriConfig.productName) ("{0}.exe" -f $tauriConfig.productName)
   if (Test-Path -LiteralPath $portableExe) {
     $portableItem = Get-Item -LiteralPath $portableExe
     $portableSizeMb = [Math]::Round($portableItem.Length / 1MB, 2)
@@ -365,7 +383,7 @@ try {
     $portableDetail = "{0} ({1} MB)" -f $portableExe, $portableSizeMb
     Add-Result -Name "便携版 EXE 存在" -Ok $portableOk -Detail $portableDetail
     try {
-      $startupDetail = Test-PortableStartup -PortableExe $portableExe
+      $startupDetail = Test-PortableStartup -PortableExe $portableExe -StableExe $stableExe
       Add-Result -Name "便携版启动冒烟" -Ok $true -Detail $startupDetail
     } catch {
       Add-Result -Name "便携版启动冒烟" -Ok $false -Detail $_.Exception.Message
@@ -380,14 +398,6 @@ try {
     Add-Result -Name "便携版 EXE 存在" -Ok $false -Detail $portableExe
     Add-Result -Name "便携版启动冒烟" -Ok $false -Detail "便携版 EXE 不存在，跳过启动测试。"
     Add-Result -Name "窗口状态文件" -Ok $false -Detail "便携版 EXE 不存在，跳过状态文件测试。"
-  }
-
-  if (Test-Path -LiteralPath $setupExe) {
-    $setupItem = Get-Item -LiteralPath $setupExe
-    $setupSizeMb = [Math]::Round($setupItem.Length / 1MB, 2)
-    Add-Result -Name "正式安装包存在" -Ok ($setupItem.Length -gt (1024 * 1024)) -Detail ("{0} ({1} MB)" -f $setupExe, $setupSizeMb)
-  } else {
-    Add-Result -Name "正式安装包存在" -Ok $false -Detail $setupExe
   }
 
   $webView2 = Test-WebView2Runtime
