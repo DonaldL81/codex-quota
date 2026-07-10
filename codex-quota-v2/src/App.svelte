@@ -119,7 +119,7 @@
   $: updateNoticeText = makeUpdateNoticeText();
   $: bottomNoticeText = makeBottomNoticeText(status, quotaWindows.length > 0, updateNoticeText);
   $: scaleStyle = `--ui-scale:${uiScale.toFixed(3)};--width-scale:${widthScale.toFixed(3)};--height-scale:${heightScale.toFixed(3)};--panel-opacity:${(panelOpacity / 100).toFixed(2)};`;
-  $: shellClass = `shell ${isSmall ? "small-mode" : "large-mode"} color-${colorScheme} ${darkMode ? "dark-mode" : ""}`;
+  $: shellClass = `shell ${isSmall ? "small-mode" : "large-mode"} color-${colorScheme} ${darkMode ? "dark-mode" : ""} ${panelOpacity < 100 ? "composite-refresh" : ""}`;
 
   onMount(() => {
     try {

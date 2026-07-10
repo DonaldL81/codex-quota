@@ -70,10 +70,26 @@ select {
   z-index: 0;
   inset: 0;
   border-radius: inherit;
-  background: rgba(var(--panel-bg-rgb), var(--panel-opacity));
+  background: rgb(var(--panel-bg-rgb));
   content: "";
   contain: paint;
+  opacity: var(--panel-opacity);
   pointer-events: none;
+}
+
+.shell.composite-refresh::before {
+  animation: shell-composite-refresh 480ms steps(1, end) infinite;
+}
+
+@keyframes shell-composite-refresh {
+  0%,
+  100% {
+    opacity: var(--panel-opacity);
+  }
+
+  50% {
+    opacity: calc(var(--panel-opacity) - 0.001);
+  }
 }
 
 .shell.dark-mode {
