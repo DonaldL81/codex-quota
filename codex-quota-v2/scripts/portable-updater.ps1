@@ -70,6 +70,22 @@ function Copy-WithRetry {
   }
 }
 
+function Start-FallbackTarget {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  if ($NoRun -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    return $false
+  }
+
+  try {
+    Start-Process -FilePath $Path | Out-Null
+    return $true
+  } catch {
+    Write-Host "Warning: failed to restart existing target: $($_.Exception.Message)"
+    return $false
+  }
+}
+
 if (-not (Test-Path -LiteralPath $Source)) {
   throw "Source file does not exist: $Source"
 }
@@ -83,14 +99,21 @@ if (-not $KeepRunning) {
   Stop-CodexQuotaProcesses -PreferredProcessId $ProcessId
 }
 
-Copy-WithRetry -From $Source -To $Target
-Set-Content -LiteralPath (Join-Path $targetDir $markerName) -Value "portable" -Encoding ASCII
+try {
+  Copy-WithRetry -From $Source -To $Target
+  Set-Content -LiteralPath (Join-Path $targetDir $markerName) -Value "portable" -Encoding ASCII
 
-$noShortcutMarker = Join-Path $targetDir $noShortcutMarkerName
-if ($NoShortcut) {
-  Set-Content -LiteralPath $noShortcutMarker -Value "no-shortcut" -Encoding ASCII
-} elseif (Test-Path -LiteralPath $noShortcutMarker) {
-  Remove-Item -LiteralPath $noShortcutMarker -Force -ErrorAction SilentlyContinue
+  $noShortcutMarker = Join-Path $targetDir $noShortcutMarkerName
+  if ($NoShortcut) {
+    Set-Content -LiteralPath $noShortcutMarker -Value "no-shortcut" -Encoding ASCII
+  } elseif (Test-Path -LiteralPath $noShortcutMarker) {
+    Remove-Item -LiteralPath $noShortcutMarker -Force -ErrorAction SilentlyContinue
+  }
+} catch {
+  Write-Host "Warning: portable update failed: $($_.Exception.Message)"
+  $fallbackLaunched = Start-FallbackTarget -Path $Target
+  Write-Host "FallbackLaunched: $fallbackLaunched"
+  throw
 }
 
 $launched = $false

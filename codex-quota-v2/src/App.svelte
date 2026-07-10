@@ -116,6 +116,8 @@
   $: statusMessage = makeStatusText(status, errorText, displayQuota, lastRefreshText);
   $: updateVisible = updatePanelOpen && (updateChecking || updateDownloading || !!updateErrorText || !!updateInfo?.available);
   $: updatePercent = clamp(Math.round(updateProgress?.percent ?? 0), 0, 100);
+  $: updateNoticeText = makeUpdateNoticeText();
+  $: bottomNoticeText = makeBottomNoticeText(status, quotaWindows.length > 0, updateNoticeText);
   $: scaleStyle = `--ui-scale:${uiScale.toFixed(3)};--width-scale:${widthScale.toFixed(3)};--height-scale:${heightScale.toFixed(3)};--panel-opacity:${(panelOpacity / 100).toFixed(2)};`;
   $: shellClass = `shell ${isSmall ? "small-mode" : "large-mode"} color-${colorScheme} ${darkMode ? "dark-mode" : ""}`;
 
@@ -376,7 +378,11 @@
   }
 
   async function startUpdateDownload() {
-    if (!updateInfo?.available || updateDownloading) return;
+    if (updateDownloading) {
+      updatePanelOpen = true;
+      return;
+    }
+    if (!updateInfo?.available) return;
     updatePanelOpen = true;
     updateDownloading = true;
     updateErrorText = "";
@@ -406,8 +412,6 @@
 
   function closeUpdatePanel() {
     updatePanelOpen = false;
-    updateErrorText = "";
-    updateProgress = null;
   }
 
   async function switchMode(nextMode: "small" | "large") {
@@ -809,6 +813,19 @@
     return "";
   }
 
+  function makeUpdateNoticeText() {
+    if (updateErrorText) return "更新失败，请稍后重试";
+    if (!updateDownloading) return "";
+    if (updateProgress?.phase === "installing") return "更新已准备，正在重启";
+    return `正在更新：${updatePercent}%`;
+  }
+
+  function makeBottomNoticeText(currentStatus: Status, hasVisibleQuota: boolean, currentUpdateText: string) {
+    const quotaNotice = currentStatus === "error" && hasVisibleQuota ? "暂时无法获取，当前显示上次额度" : "";
+    if (quotaNotice && currentUpdateText) return `${quotaNotice} · ${currentUpdateText}`;
+    return quotaNotice || currentUpdateText;
+  }
+
   function friendlyUpdateError(error: unknown) {
     const raw = String(error || "").trim();
     if (!raw) return "下载中断，请重新下载";
@@ -1051,6 +1068,7 @@
 
   {#if updateVisible}
     <section class="update-panel">
+      <button class="update-close" title="隐藏更新提示" aria-label="隐藏更新提示" on:click={closeUpdatePanel}>×</button>
       <div class="update-copy">
         <strong>{updatePanelText()}</strong>
       </div>
@@ -1060,7 +1078,7 @@
       {#if updateErrorText}
         <div class="update-actions">
           <button class="update-button" title="重试" aria-label="重试" on:click={startUpdateDownload}>重试</button>
-          <button class="update-button" title="关闭" aria-label="关闭" on:click={closeUpdatePanel}>关闭</button>
+          <button class="update-button" title="隐藏" aria-label="隐藏" on:click={closeUpdatePanel}>隐藏</button>
         </div>
       {:else if updateInfo?.available && !updateDownloading}
         <button class="update-button" title="更新" aria-label="更新" on:click={startUpdateDownload}>更新</button>
@@ -1097,8 +1115,8 @@
     {/if}
   </section>
 
-  {#if status === "error" && quotaWindows.length}
-    <div class="status-overlay">暂时无法获取，当前显示上次额度</div>
+  {#if bottomNoticeText}
+    <div class="status-overlay">{bottomNoticeText}</div>
   {/if}
 
   <footer class="footer">
