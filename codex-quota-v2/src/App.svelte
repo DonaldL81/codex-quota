@@ -394,7 +394,13 @@
       );
       updateInfo = nextInfo;
       await setTrayUpdateAvailable(nextInfo.available, nextInfo.latestVersion);
-      if (manual) {
+      if (nextInfo.available) {
+        if (manual) {
+          showToast("发现新版本，开始更新");
+          await switchMode("large");
+        }
+        void startUpdateDownload(nextInfo);
+      } else if (manual) {
         showToast(nextInfo.message);
       }
     } catch (error) {
@@ -405,12 +411,13 @@
     }
   }
 
-  async function startUpdateDownload() {
+  async function startUpdateDownload(nextInfo: UpdateInfo | null = updateInfo) {
     if (updateDownloading) {
       updatePanelOpen = true;
       return;
     }
-    if (!updateInfo?.available) return;
+    if (!nextInfo?.available) return;
+    updateInfo = nextInfo;
     updatePanelOpen = true;
     updateDownloading = true;
     updateErrorText = "";
@@ -423,11 +430,11 @@
     };
 
     try {
-      if (!updateInfo.portableAssetUrl) throw new Error("未找到便携版更新文件");
+      if (!nextInfo.portableAssetUrl) throw new Error("未找到便携版更新文件");
       await invoke<string>("download_portable_update", {
-        url: updateInfo.portableAssetUrl,
-        fileName: updateInfo.portableFileName || null,
-        expectedSize: updateInfo.portableAssetSize || null
+        url: nextInfo.portableAssetUrl,
+        fileName: nextInfo.portableFileName || null,
+        expectedSize: nextInfo.portableAssetSize || null
       });
     } catch (error) {
       updateErrorText = friendlyUpdateError(error);
@@ -1114,11 +1121,11 @@
       </div>
       {#if updateErrorText}
         <div class="update-actions">
-          <button class="update-button" title="重试" aria-label="重试" on:click={startUpdateDownload}>重试</button>
+          <button class="update-button" title="重试" aria-label="重试" on:click={() => startUpdateDownload()}>重试</button>
           <button class="update-button" title="隐藏" aria-label="隐藏" on:click={closeUpdatePanel}>隐藏</button>
         </div>
       {:else if updateInfo?.available && !updateDownloading}
-        <button class="update-button" title="更新" aria-label="更新" on:click={startUpdateDownload}>更新</button>
+        <button class="update-button" title="更新" aria-label="更新" on:click={() => startUpdateDownload()}>更新</button>
       {/if}
     </section>
   {/if}
