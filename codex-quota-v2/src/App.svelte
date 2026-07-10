@@ -35,6 +35,7 @@
     releaseUrl: string;
     portableAssetUrl?: string | null;
     portableFileName?: string | null;
+    portableAssetSize?: number | null;
     message: string;
   };
 
@@ -51,6 +52,9 @@
   type PanelOpacity = 100 | 90 | 80 | 70 | 60 | 50 | 40 | 30 | 20 | 10;
   type CurrentWindow = ReturnType<typeof getCurrentWindow>;
   type RawQuota = Partial<QuotaSnapshot> & Record<string, unknown>;
+  type RefreshOptions = {
+    retryOnFailure?: boolean;
+  };
 
   const defaultAutoRefreshSeconds = 30;
   const autoRefreshPresets = [30, 60, 300, 600, 1200, 1800, 3600];
@@ -58,6 +62,7 @@
   const opacityPresets: PanelOpacity[] = [100, 90, 80, 70, 60, 50, 40, 30, 20, 10];
   const visibleCacheSyncMs = 5_000;
   const invokeTimeoutMs = 35_000;
+  const refreshRetryDelayMs = 1_500;
   const largeBaseWidth = 200;
   const largeBaseHeight = 112;
   const dragThresholdPx = 4;
@@ -117,7 +122,7 @@
   $: updateVisible = updatePanelOpen && (updateChecking || updateDownloading || !!updateErrorText || !!updateInfo?.available);
   $: updatePercent = clamp(Math.round(updateProgress?.percent ?? 0), 0, 100);
   $: updateNoticeText = makeUpdateNoticeText();
-  $: bottomNoticeText = makeBottomNoticeText(status, quotaWindows.length > 0, updateNoticeText);
+  $: bottomNoticeText = makeBottomNoticeText(status, quotaWindows.length > 0, updateNoticeText, errorText);
   $: scaleStyle = `--ui-scale:${uiScale.toFixed(3)};--width-scale:${widthScale.toFixed(3)};--height-scale:${heightScale.toFixed(3)};--panel-opacity:${(panelOpacity / 100).toFixed(2)};`;
   $: shellClass = `shell ${isSmall ? "small-mode" : "large-mode"} color-${colorScheme} ${darkMode ? "dark-mode" : ""} ${panelOpacity < 100 ? "composite-refresh" : ""}`;
 
@@ -159,7 +164,9 @@
     void syncAppearanceMenu();
     void checkForUpdates(false);
 
-    const unlistenRefresh = await listenSafe("quota-refresh-requested", refreshQuota);
+    const unlistenRefresh = await listenSafe("quota-refresh-requested", () => {
+      void refreshQuota();
+    });
     const unlistenUpdateCheck = await listenSafe("update-check-requested", () => {
       void checkForUpdates(true);
     });
@@ -265,33 +272,50 @@
     cacheSyncTimer = window.setInterval(syncDisplayFromBackendCache, visibleCacheSyncMs);
   }
 
-  async function refreshQuota() {
+  async function refreshQuota(options: RefreshOptions = {}) {
     if (isRefreshing) return;
     isRefreshing = true;
     if (!hasUsableQuota(displayQuota)) {
       status = "loading";
     }
+    const maxAttempts = options.retryOnFailure === false ? 1 : 2;
+    let lastError: unknown = null;
     try {
-      const nextQuota = await withTimeout(
-        invoke<QuotaSnapshot>("read_quota"),
-        invokeTimeoutMs,
-        "Codex 响应超时，请稍后刷新"
-      );
-      const normalized = {
-        ...normalizeQuota(nextQuota),
-        updatedAt: currentTimeText()
-      };
-      rememberQuota(normalized, "ready");
-      errorText = "";
-      await updateTrayQuota("ready", normalized);
-    } catch (error) {
-      errorText = friendlyError(error);
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+          const normalized = await readLiveQuota();
+          rememberQuota(normalized, "ready");
+          errorText = "";
+          await updateTrayQuota("ready", normalized);
+          return;
+        } catch (error) {
+          lastError = error;
+          if (attempt < maxAttempts) {
+            await sleep(refreshRetryDelayMs);
+          }
+        }
+      }
+
+      errorText = friendlyError(lastError);
       blockedCacheRefreshText = lastRefreshText;
-      status = "error";
-      await updateTrayQuota("error", null);
+      const fallbackQuota = hasUsableQuota(displayQuota) ? displayQuota : null;
+      status = fallbackQuota ? "stale" : "error";
+      await updateTrayQuota(fallbackQuota ? "stale" : "error", fallbackQuota);
     } finally {
       isRefreshing = false;
     }
+  }
+
+  async function readLiveQuota() {
+    const nextQuota = await withTimeout(
+      invoke<QuotaSnapshot>("read_quota"),
+      invokeTimeoutMs,
+      "Codex 响应超时，请稍后刷新"
+    );
+    return {
+      ...normalizeQuota(nextQuota),
+      updatedAt: currentTimeText()
+    };
   }
 
   async function syncDisplayFromBackendCache() {
@@ -300,7 +324,7 @@
       const cached = await invoke<RawQuota | null>("read_cached_quota");
       if (!cached || !hasQuotaPercentages(cached)) return;
       const normalized = normalizeQuota(cached);
-      if (status === "error" && normalized.updatedAt === blockedCacheRefreshText) {
+      if ((status === "error" || status === "stale") && normalized.updatedAt === blockedCacheRefreshText) {
         return;
       }
       if (quotaSnapshotKey(normalized) === quotaSnapshotKey(displayQuota) && normalized.updatedAt === lastRefreshText) {
@@ -327,6 +351,10 @@
       timer = window.setTimeout(() => reject(new Error(message)), ms);
       promise.then(resolve, reject).finally(() => window.clearTimeout(timer));
     });
+  }
+
+  function sleep(ms: number) {
+    return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
   }
 
   async function updateTrayQuota(nextStatus: "ready" | "stale" | "error", currentQuota: QuotaSnapshot | null) {
@@ -398,7 +426,8 @@
       if (!updateInfo.portableAssetUrl) throw new Error("未找到便携版更新文件");
       await invoke<string>("download_portable_update", {
         url: updateInfo.portableAssetUrl,
-        fileName: updateInfo.portableFileName || null
+        fileName: updateInfo.portableFileName || null,
+        expectedSize: updateInfo.portableAssetSize || null
       });
     } catch (error) {
       updateErrorText = friendlyUpdateError(error);
@@ -820,8 +849,16 @@
     return `正在更新：${updatePercent}%`;
   }
 
-  function makeBottomNoticeText(currentStatus: Status, hasVisibleQuota: boolean, currentUpdateText: string) {
-    const quotaNotice = currentStatus === "error" && hasVisibleQuota ? "暂时无法获取，当前显示上次额度" : "";
+  function makeBottomNoticeText(
+    currentStatus: Status,
+    hasVisibleQuota: boolean,
+    currentUpdateText: string,
+    currentErrorText: string
+  ) {
+    const quotaNotice =
+      (currentStatus === "error" || currentStatus === "stale") && hasVisibleQuota && currentErrorText
+        ? "刷新失败，当前显示上次额度"
+        : "";
     if (quotaNotice && currentUpdateText) return `${quotaNotice} · ${currentUpdateText}`;
     return quotaNotice || currentUpdateText;
   }
@@ -1033,7 +1070,7 @@
         <rect x="7" y="7" width="10" height="10" rx="0.5"></rect>
       </svg>
     </button>
-    <button class:spinning={isRefreshing} class="compact-refresh" title="立即刷新" aria-label="立即刷新" on:click={refreshQuota}>
+    <button class:spinning={isRefreshing} class="compact-refresh" title="立即刷新" aria-label="立即刷新" on:click={() => refreshQuota()}>
       <svg class="icon action-icon refresh-icon" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
         <path d="M21 3v6h-6"></path>
@@ -1057,7 +1094,7 @@
           <path d="M14 3l7 7-2 2-2-2-4 4v5l-1 1-4-4-5 5-1-1 5-5-4-4 1-1h5l4-4-2-2 2-2z"></path>
         </svg>
       </button>
-      <button class:spinning={isRefreshing} title="立即刷新" aria-label="立即刷新" on:click={refreshQuota}>
+      <button class:spinning={isRefreshing} title="立即刷新" aria-label="立即刷新" on:click={() => refreshQuota()}>
         <svg class="icon action-icon refresh-icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
           <path d="M21 3v6h-6"></path>

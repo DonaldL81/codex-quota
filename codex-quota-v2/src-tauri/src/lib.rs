@@ -132,7 +132,8 @@ pub fn run() {
             window::init_state(app.handle())?;
             tray::init_tray(app.handle())?;
             if let Some(window) = app.get_webview_window("main") {
-                window::show_panel(app.handle(), "small")?;
+                let initial_mode = window::get_state(app.handle()).mode;
+                window::show_panel(app.handle(), &initial_mode)?;
                 window.emit("quota-refresh-requested", ())?;
             }
             Ok(())

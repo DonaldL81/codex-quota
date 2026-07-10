@@ -31,6 +31,7 @@ pub struct UpdateInfo {
     pub release_url: String,
     pub portable_asset_url: Option<String>,
     pub portable_file_name: Option<String>,
+    pub portable_asset_size: Option<u64>,
     pub message: String,
 }
 
@@ -55,13 +56,19 @@ struct GithubRelease {
 struct GithubAsset {
     name: String,
     browser_download_url: String,
+    size: Option<u64>,
 }
 
 #[tauri::command]
 pub async fn check_update() -> Result<UpdateInfo, String> {
     let release = github_release().await?;
     let latest_version = normalize_version(&release.tag_name)
-        .or_else(|| release.assets.iter().find_map(|asset| version_from_asset(&asset.name)))
+        .or_else(|| {
+            release
+                .assets
+                .iter()
+                .find_map(|asset| version_from_asset(&asset.name))
+        })
         .unwrap_or_else(|| CURRENT_VERSION.to_string());
     let portable_asset = find_asset(&release.assets, "portable.exe");
     let available = is_newer_version(&latest_version, CURRENT_VERSION);
@@ -79,6 +86,7 @@ pub async fn check_update() -> Result<UpdateInfo, String> {
         release_url: release.html_url,
         portable_asset_url: portable_asset.map(|asset| asset.browser_download_url.clone()),
         portable_file_name: portable_asset.map(|asset| asset.name.clone()),
+        portable_asset_size: portable_asset.and_then(|asset| asset.size),
         message,
     })
 }
@@ -88,6 +96,7 @@ pub async fn download_portable_update(
     app: AppHandle,
     url: String,
     file_name: Option<String>,
+    expected_size: Option<u64>,
 ) -> Result<String, String> {
     let file_name = safe_file_name(
         file_name.as_deref(),
@@ -103,7 +112,7 @@ pub async fn download_portable_update(
     let target_path = portable_target_path()?;
 
     emit_progress(&app, "downloading", 0, 0, None, "正在下载便携版更新");
-    let saved_path = download_to_path(&app, &url, stage_path).await?;
+    let saved_path = download_to_path(&app, &url, stage_path, expected_size).await?;
     emit_progress(&app, "installing", 100, 0, None, "下载完成，正在重启更新");
     start_portable_update_helper(
         &app,
@@ -132,7 +141,12 @@ async fn github_release() -> Result<GithubRelease, String> {
         .map_err(|error| format!("解析更新信息失败: {error}"))
 }
 
-async fn download_to_path(app: &AppHandle, url: &str, path: PathBuf) -> Result<String, String> {
+async fn download_to_path(
+    app: &AppHandle,
+    url: &str,
+    path: PathBuf,
+    expected_size: Option<u64>,
+) -> Result<String, String> {
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent)
             .await
@@ -149,7 +163,9 @@ async fn download_to_path(app: &AppHandle, url: &str, path: PathBuf) -> Result<S
         .error_for_status()
         .map_err(|error| format!("下载更新失败: {error}"))?;
 
-    let total = response.content_length();
+    let total = response
+        .content_length()
+        .or(expected_size.filter(|size| *size > 0));
     let mut downloaded = 0u64;
     let mut file = tokio::fs::File::create(&path)
         .await
@@ -166,7 +182,14 @@ async fn download_to_path(app: &AppHandle, url: &str, path: PathBuf) -> Result<S
             .map(|total| ((downloaded as f64 / total as f64) * 100.0).round() as u8)
             .unwrap_or(0)
             .min(100);
-        emit_progress(app, "downloading", percent, downloaded, total, "正在下载更新");
+        emit_progress(
+            app,
+            "downloading",
+            percent,
+            downloaded,
+            total,
+            "正在下载更新",
+        );
     }
 
     file.flush()
@@ -194,7 +217,13 @@ async fn start_portable_update_helper(
         .await
         .map_err(|error| format!("无法写入更新脚本: {error}"))?;
 
-    spawn_portable_updater(&script_path, &source_path, &target_path, process_id, no_shortcut)?;
+    spawn_portable_updater(
+        &script_path,
+        &source_path,
+        &target_path,
+        process_id,
+        no_shortcut,
+    )?;
     Ok(())
 }
 
@@ -211,7 +240,13 @@ fn start_portable_update_helper_sync(
     }
     fs::write(&script_path, PORTABLE_UPDATER_SCRIPT)
         .map_err(|error| format!("无法写入更新脚本: {error}"))?;
-    spawn_portable_updater(&script_path, source_path, target_path, process_id, no_shortcut)
+    spawn_portable_updater(
+        &script_path,
+        source_path,
+        target_path,
+        process_id,
+        no_shortcut,
+    )
 }
 
 fn portable_updater_script_path(app: &AppHandle) -> Result<PathBuf, String> {
