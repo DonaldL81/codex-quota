@@ -111,6 +111,16 @@ pub fn show_panel(app: &AppHandle, mode: &str) -> tauri::Result<()> {
     show_panel_near_tray(app, mode, None)
 }
 
+pub fn show_existing_instance(app: &AppHandle) -> tauri::Result<()> {
+    let mode = app
+        .try_state::<SharedWindowState>()
+        .and_then(|state| state.lock().ok().map(|state| state.mode.clone()))
+        .unwrap_or_else(|| "small".into());
+    show_panel(app, &mode)?;
+    let _ = app.emit("quota-refresh-requested", ());
+    Ok(())
+}
+
 pub fn show_panel_near_tray(
     app: &AppHandle,
     mode: &str,

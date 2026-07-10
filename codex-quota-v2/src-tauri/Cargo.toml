@@ -1,6 +1,6 @@
 [package]
 name = "codex-quota-v2"
-version = "2.3.5"
+version = "2.3.6"
 description = "Codex quota monitor for Windows"
 authors = ["Codex"]
 edition = "2021"
@@ -22,6 +22,7 @@ tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
+tauri-plugin-single-instance = "2"
 tokio = { version = "1", features = ["fs", "io-util", "process", "time"] }
 
 [profile.release]

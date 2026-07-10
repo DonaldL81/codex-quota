@@ -346,6 +346,53 @@ pub fn prepare_portable_runtime(app: &AppHandle) -> bool {
     false
 }
 
+pub fn install_newer_portable_from_second_instance(app: &AppHandle, args: &[String]) -> bool {
+    let Some(source_path) = args
+        .iter()
+        .find_map(|arg| second_instance_portable_path(arg))
+    else {
+        return false;
+    };
+    let Some(source_version) = source_path
+        .file_name()
+        .and_then(|name| version_from_asset(&name.to_string_lossy()))
+    else {
+        return false;
+    };
+
+    if !is_newer_version(&source_version, CURRENT_VERSION) {
+        return false;
+    }
+
+    match portable_target_path().and_then(|target_path| {
+        start_portable_update_helper_sync(
+            app,
+            &source_path,
+            &target_path,
+            Some(std::process::id()),
+            false,
+        )
+    }) {
+        Ok(()) => {
+            app.exit(0);
+            true
+        }
+        Err(error) => {
+            eprintln!("新版便携版稳定入口迁移失败: {error}");
+            false
+        }
+    }
+}
+
+fn second_instance_portable_path(arg: &str) -> Option<PathBuf> {
+    let path = PathBuf::from(arg.trim_matches('"'));
+    if path.is_file() && should_migrate_versioned_portable(&path) {
+        Some(path)
+    } else {
+        None
+    }
+}
+
 fn should_migrate_versioned_portable(path: &Path) -> bool {
     path.file_name()
         .map(|name| name.to_string_lossy().to_ascii_lowercase())

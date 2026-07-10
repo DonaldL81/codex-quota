@@ -111,6 +111,14 @@ fn set_update_available(
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if updates::install_newer_portable_from_second_instance(app, &args) {
+                return;
+            }
+            if let Err(error) = window::show_existing_instance(app) {
+                eprintln!("无法显示已运行窗口: {error}");
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
