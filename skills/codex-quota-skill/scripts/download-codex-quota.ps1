@@ -14,6 +14,7 @@ $branch = "main"
 $rawBaseUrl = "https://raw.githubusercontent.com/$repo/$branch"
 $readmeUrl = "$rawBaseUrl/README.md"
 $updaterUrl = "$rawBaseUrl/codex-quota-v2/scripts/portable-updater.ps1"
+$latestReleaseUrl = "https://api.github.com/repos/$repo/releases/latest"
 $userAgent = "codex-quota-skill"
 $appDirName = "Codex Quota Monitor"
 $stablePortableName = "Codex Quota Monitor.exe"
@@ -55,6 +56,35 @@ function Get-CurrentVersion {
     throw "Cannot find current version in README.md."
   }
   return $match.Groups[1].Value
+}
+
+function Get-LatestReleasePackageInfo {
+  try {
+    $release = Invoke-RestMethod -Uri $latestReleaseUrl -Headers @{
+      "User-Agent" = $userAgent
+      "Accept" = "application/vnd.github+json"
+    }
+    $version = ($release.tag_name -replace "^v", "")
+    if (-not ($version -match "^\d+\.\d+\.\d+$")) {
+      return $null
+    }
+
+    $asset = @($release.assets) |
+      Where-Object { $_.name -match "Portable\.exe$" -and $_.browser_download_url } |
+      Select-Object -First 1
+    if (-not $asset) {
+      return $null
+    }
+
+    [pscustomobject]@{
+      Name = $asset.name
+      Url = $asset.browser_download_url
+      Source = "GitHub Release"
+      Version = $version
+    }
+  } catch {
+    return $null
+  }
 }
 
 function New-PackageInfo {
@@ -107,8 +137,11 @@ if (-not (Test-Path -LiteralPath $targetDir)) {
   New-Item -ItemType Directory -Path $targetDir | Out-Null
 }
 
-$currentVersion = Get-CurrentVersion
-$asset = New-PackageInfo -Version $currentVersion
+$asset = Get-LatestReleasePackageInfo
+if (-not $asset) {
+  $currentVersion = Get-CurrentVersion
+  $asset = New-PackageInfo -Version $currentVersion
+}
 $packagePath = Join-Path $targetDir $asset.Name
 $stablePortablePath = Join-Path $targetDir $stablePortableName
 $existsBefore = Test-Path -LiteralPath $packagePath
