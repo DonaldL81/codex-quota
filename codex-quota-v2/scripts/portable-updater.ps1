@@ -1,5 +1,3 @@
-$ErrorActionPreference = "Stop"
-
 param(
   [Parameter(Mandatory = $true)][string]$Source,
   [Parameter(Mandatory = $true)][string]$Target,
@@ -8,6 +6,8 @@ param(
   [switch]$KeepRunning,
   [switch]$NoShortcut
 )
+
+$ErrorActionPreference = "Stop"
 
 $markerName = ".codex-quota-portable"
 $noShortcutMarkerName = ".codex-quota-no-shortcut"

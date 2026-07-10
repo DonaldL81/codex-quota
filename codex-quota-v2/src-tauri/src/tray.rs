@@ -504,7 +504,7 @@ fn latest_version(app: &AppHandle) -> Option<String> {
 
 fn update_version_label(app: &AppHandle) -> String {
     latest_version(app)
-        .map(|version| format!("{} » {}", display_version(), version))
+        .map(|version| format!("更新{} » {}", display_version(), version))
         .unwrap_or_else(|| "更新到最新版本".to_string())
 }
 

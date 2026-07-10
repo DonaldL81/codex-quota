@@ -800,16 +800,9 @@
     return `更新中：${chars.join("")} ${percent}%`;
   }
 
-  function updateActionText() {
-    if (updateChecking) return "正在检查";
-    if (updateDownloading) return updateProgress?.message || "正在下载";
-    if (!updateInfo?.available) return "检查更新";
-    return "下载并更新";
-  }
-
-  function updateDetailText() {
+  function updatePanelText() {
     if (updateErrorText) return updateErrorText;
-    if (updateDownloading) return updateProgressLine();
+    if (updateDownloading) return `正在更新：${updatePercent}%`;
     if (updateInfo?.available) return `发现新版本 ${updateInfo.latestVersion}`;
     if (updateInfo) return updateInfo.message;
     if (updateChecking) return "正在检查更新";
@@ -1059,8 +1052,7 @@
   {#if updateVisible}
     <section class="update-panel">
       <div class="update-copy">
-        <strong>{updateActionText()}</strong>
-        <span>{updateDetailText()}</span>
+        <strong>{updatePanelText()}</strong>
       </div>
       <div class="update-meter">
         <div class="update-meter-fill" style={`width:${updatePercent}%`}></div>
