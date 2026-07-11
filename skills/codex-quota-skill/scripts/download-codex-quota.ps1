@@ -13,7 +13,7 @@ $repo = "DonaldL81/codex-quota"
 $branch = "main"
 $rawBaseUrl = "https://raw.githubusercontent.com/$repo/$branch"
 $readmeUrl = "$rawBaseUrl/README.md"
-$updaterUrl = "$rawBaseUrl/codex-quota-v2/scripts/portable-updater.ps1"
+$updaterUrl = "$rawBaseUrl/app/scripts/portable-updater.ps1"
 $latestReleaseUrl = "https://api.github.com/repos/$repo/releases/latest"
 $userAgent = "codex-quota-skill"
 $appDirName = "Codex Quota Monitor"
@@ -104,7 +104,7 @@ function New-PackageInfo {
 function Get-PortableUpdaterPath {
   $candidates = @(
     (Join-Path $PSScriptRoot "portable-updater.ps1"),
-    (Join-Path $PSScriptRoot "..\..\..\codex-quota-v2\scripts\portable-updater.ps1")
+    (Join-Path $PSScriptRoot "..\..\..\app\scripts\portable-updater.ps1")
   )
 
   foreach ($candidate in $candidates) {

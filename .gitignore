@@ -4,21 +4,23 @@ node_modules/
 # Frontend build output
 dist/
 dist-portable/
-codex-quota-v2/dist/
-codex-quota-v2/dist-portable/
+app/dist/
+app/dist-portable/
 
 # Rust/Tauri build output
 target/
 src-tauri/target/
 src-tauri/gen/
+app/src-tauri/target/
+app/src-tauri/gen/
 
 # Local runtime/cache folders
 .npm-cache/
 .edge-shot-profile/
 .runtime/
 screenshots/
-!codex-quota-v2/assets/screenshots/
-!codex-quota-v2/assets/screenshots/*.png
+!app/assets/screenshots/
+!app/assets/screenshots/*.png
 
 # Logs
 *.log

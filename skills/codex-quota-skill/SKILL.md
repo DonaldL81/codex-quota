@@ -25,7 +25,7 @@ Keep PowerShell script output in English/ASCII where possible to avoid Windows P
 - 用户要求不关闭当前运行版本时，使用 `-KeepRunning`。
 - 用户要求不创建桌面快捷方式时，使用 `-NoShortcut`。
 
-脚本会读取公开 raw README 中的当前版本号，再下载仓库根目录中对应版本的 EXE 文件。这样可以避免 GitHub API 限流。
+脚本会优先读取 GitHub Latest Release 中的单文件版资产；如果 Release API 暂不可用，再回退读取公开 raw README 中的当前版本号，并下载仓库根目录中对应版本的 EXE 文件。
 
 ## 脚本用法
 
@@ -70,4 +70,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\download-codex-quota
 - 是否已经启动
 - 是否检测到目标进程正在运行
 
-如果 GitHub 无法访问、README 未解析到版本号、目标文件不存在或下载失败，简要说明错误，并建议稍后重试。
+如果 GitHub 无法访问、Release/README 未解析到版本号、目标文件不存在或下载失败，简要说明错误，并建议稍后重试。
