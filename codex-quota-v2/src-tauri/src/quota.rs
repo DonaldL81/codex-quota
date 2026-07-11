@@ -14,7 +14,7 @@ use tokio::process::{Child, ChildStdout, Command};
 use tokio::time::timeout;
 
 const CLIENT_NAME: &str = "codex-quota-monitor-v2";
-const CLIENT_VERSION: &str = "2.3.6";
+const CLIENT_VERSION: &str = "2.3.7";
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(15);
 const CACHE_FILE: &str = "last-quota.json";
 #[cfg(windows)]
@@ -151,7 +151,9 @@ fn is_suspicious_full_snapshot(snapshot: &QuotaSnapshot, previous: Option<&Quota
         && snapshot.plan_type == previous.plan_type
         && snapshot.primary_remaining == 100
         && snapshot.secondary_remaining == 100
-        && (previous.primary_remaining < 100 || previous.secondary_remaining < 100)
+        && ((previous.primary_remaining < 100 && snapshot.primary_reset == previous.primary_reset)
+            || (previous.secondary_remaining < 100
+                && snapshot.secondary_reset == previous.secondary_reset))
 }
 
 fn cache_file(app: &AppHandle) -> Option<PathBuf> {
@@ -380,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_suspicious_full_snapshot_after_non_full_cache() {
+    fn rejects_suspicious_full_snapshot_when_reset_does_not_advance() {
         let previous = QuotaSnapshot {
             status: "ready".into(),
             limit_name: "Codex".into(),
@@ -404,6 +406,32 @@ mod tests {
 
         let error = reject_suspicious_full_snapshot(&snapshot, Some(&previous)).unwrap_err();
         assert!(error.0.contains("temporary placeholder quota data"));
+    }
+
+    #[test]
+    fn accepts_full_snapshot_when_reset_time_advances() {
+        let previous = QuotaSnapshot {
+            status: "ready".into(),
+            limit_name: "Codex".into(),
+            plan_type: "pro".into(),
+            updated_at: "14:01:11".into(),
+            primary_remaining: 80,
+            primary_reset: "15:11".into(),
+            secondary_remaining: 95,
+            secondary_reset: "7/18 01:39".into(),
+        };
+        let snapshot = QuotaSnapshot {
+            status: "ready".into(),
+            limit_name: "Codex".into(),
+            plan_type: "pro".into(),
+            updated_at: "15:12:10".into(),
+            primary_remaining: 100,
+            primary_reset: "20:11".into(),
+            secondary_remaining: 100,
+            secondary_reset: "7/18 17:12".into(),
+        };
+
+        reject_suspicious_full_snapshot(&snapshot, Some(&previous)).unwrap();
     }
 
     #[test]
