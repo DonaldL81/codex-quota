@@ -38,6 +38,7 @@ const OPACITY_PRESETS: &[(u32, &str)] = &[
     (30, "30%"),
     (20, "20%"),
     (10, "10%"),
+    (0, "0%"),
 ];
 type Color = [u8; 4];
 
@@ -56,8 +57,9 @@ struct AppearanceMenuState {
 }
 
 struct TrayVisualState {
-    primary_remaining: Mutex<Option<i64>>,
-    secondary_remaining: Mutex<Option<i64>>,
+    quota_label: Mutex<String>,
+    quota_remaining: Mutex<Option<i64>>,
+    reset_credits_available: Mutex<Option<i64>>,
     status: Mutex<String>,
     update_available: Mutex<bool>,
     update_checked: Mutex<bool>,
@@ -66,7 +68,8 @@ struct TrayVisualState {
 
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let small = MenuItem::with_id(app, "small", "打开小窗", true, None::<&str>)?;
-    let large = MenuItem::with_id(app, "large", "打开大窗", true, None::<&str>)?;
+    let large = MenuItem::with_id(app, "large", "打开进度大窗", true, None::<&str>)?;
+    let ring = MenuItem::with_id(app, "ring", "打开环形大窗", true, None::<&str>)?;
     let topmost = CheckMenuItem::with_id(
         app,
         "topmost",
@@ -93,7 +96,10 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let auto_refresh_60min = auto_refresh_item(app, 3600, "60min", current_auto_refresh_seconds)?;
     let auto_refresh = Submenu::with_items(
         app,
-        format!("自动刷新 {}", auto_refresh_label(current_auto_refresh_seconds)),
+        format!(
+            "自动刷新 {}",
+            auto_refresh_label(current_auto_refresh_seconds)
+        ),
         true,
         &[
             &auto_refresh_30s,
@@ -150,6 +156,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let opacity_30 = opacity_item(app, 30, "30%", current_opacity)?;
     let opacity_20 = opacity_item(app, 20, "20%", current_opacity)?;
     let opacity_10 = opacity_item(app, 10, "10%", current_opacity)?;
+    let opacity_0 = opacity_item(app, 0, "0%", current_opacity)?;
     let opacity_menu = Submenu::with_items(
         app,
         format!("透明度 {}", opacity_label(current_opacity)),
@@ -165,6 +172,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &opacity_30,
             &opacity_20,
             &opacity_10,
+            &opacity_0,
         ],
     )?;
     let update_available = update_available(app);
@@ -188,6 +196,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         &[
             &small,
             &large,
+            &ring,
             &topmost,
             &separator_1,
             &color_menu,
@@ -231,12 +240,7 @@ pub fn set_auto_refresh_seconds(app: &AppHandle, seconds: u32) -> tauri::Result<
     Ok(())
 }
 
-fn update_appearance_state(
-    app: &AppHandle,
-    color_scheme: &str,
-    dark_mode: bool,
-    opacity: u32,
-) {
+fn update_appearance_state(app: &AppHandle, color_scheme: &str, dark_mode: bool, opacity: u32) {
     if let Some(state) = app.try_state::<AppearanceMenuState>() {
         if is_color_scheme(color_scheme) {
             if let Ok(mut current) = state.color_scheme.lock() {
@@ -301,7 +305,7 @@ pub fn refresh_menu(app: &AppHandle) -> tauri::Result<()> {
 }
 
 pub fn popup_context_menu(app: &AppHandle) -> tauri::Result<()> {
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_webview_window(window::active_window_label(app)) {
         let menu = build_menu(app)?;
         window.popup_menu(&menu)?;
     }
@@ -321,8 +325,9 @@ pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
         opacity: Mutex::new(90),
     });
     app.manage(TrayVisualState {
-        primary_remaining: Mutex::new(None),
-        secondary_remaining: Mutex::new(None),
+        quota_label: Mutex::new("周额度".into()),
+        quota_remaining: Mutex::new(None),
+        reset_credits_available: Mutex::new(None),
         status: Mutex::new("idle".into()),
         update_available: Mutex::new(false),
         update_checked: Mutex::new(false),
@@ -335,13 +340,16 @@ pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .tooltip("Codex 额度")
-        .icon(create_tray_image(None, None, "idle", false))
+        .icon(create_tray_image(None, "idle", false))
         .on_menu_event(|app, event| match event.id().as_ref() {
             "small" => {
                 let _ = window::show_panel(app, "small");
             }
             "large" => {
                 let _ = window::show_panel(app, "large");
+            }
+            "ring" => {
+                let _ = window::show_panel(app, "ring");
             }
             "topmost" => {
                 let _ = window::toggle_topmost(app);
@@ -388,9 +396,11 @@ pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
                 }
             }
             "restart" => {
+                window::remember_window_state(app);
                 app.restart();
             }
             "quit" => {
+                window::remember_window_state(app);
                 app.exit(0);
             }
             _ => {}
@@ -404,7 +414,7 @@ pub fn init_tray(app: &AppHandle) -> tauri::Result<()> {
             } = event
             {
                 let app = tray.app_handle();
-                let _ = window::handle_tray_left_click(&app, rect);
+                let _ = window::handle_tray_left_click(app, rect);
             }
         })
         .build(app)?;
@@ -595,16 +605,22 @@ fn display_version() -> String {
 
 pub fn update_quota_icon(
     app: &AppHandle,
-    primary_remaining: Option<i64>,
-    secondary_remaining: Option<i64>,
+    quota_label: Option<&str>,
+    quota_remaining: Option<i64>,
+    reset_credits_available: Option<i64>,
     status: &str,
 ) -> tauri::Result<()> {
     if let Some(state) = app.try_state::<TrayVisualState>() {
-        if let Ok(mut current) = state.primary_remaining.lock() {
-            *current = primary_remaining;
+        if let Some(label) = quota_label {
+            if let Ok(mut current) = state.quota_label.lock() {
+                *current = label.to_string();
+            }
         }
-        if let Ok(mut current) = state.secondary_remaining.lock() {
-            *current = secondary_remaining;
+        if let Ok(mut current) = state.quota_remaining.lock() {
+            *current = quota_remaining;
+        }
+        if let Ok(mut current) = state.reset_credits_available.lock() {
+            *current = reset_credits_available;
         }
         if let Ok(mut current) = state.status.lock() {
             *current = status.to_string();
@@ -615,13 +631,19 @@ pub fn update_quota_icon(
 }
 
 fn render_tray_state(app: &AppHandle, state: &TrayVisualState) -> tauri::Result<()> {
-    let primary_remaining = state
-        .primary_remaining
+    let quota_remaining = state
+        .quota_remaining
         .lock()
         .ok()
         .and_then(|current| *current);
-    let secondary_remaining = state
-        .secondary_remaining
+    let quota_label = state
+        .quota_label
+        .lock()
+        .ok()
+        .map(|current| current.clone())
+        .unwrap_or_else(|| "周额度".into());
+    let reset_credits_available = state
+        .reset_credits_available
         .lock()
         .ok()
         .and_then(|current| *current);
@@ -640,15 +662,15 @@ fn render_tray_state(app: &AppHandle, state: &TrayVisualState) -> tauri::Result<
 
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         tray.set_icon(Some(create_tray_image(
-            primary_remaining,
-            secondary_remaining,
+            quota_remaining,
             &status,
             update_available,
         )))?;
         tray.set_icon_as_template(false)?;
         tray.set_tooltip(Some(make_tooltip(
-            primary_remaining,
-            secondary_remaining,
+            &quota_label,
+            quota_remaining,
+            reset_credits_available,
             &status,
             update_available,
         )))?;
@@ -657,29 +679,36 @@ fn render_tray_state(app: &AppHandle, state: &TrayVisualState) -> tauri::Result<
 }
 
 fn make_tooltip(
-    primary_remaining: Option<i64>,
-    secondary_remaining: Option<i64>,
+    quota_label: &str,
+    quota_remaining: Option<i64>,
+    reset_credits_available: Option<i64>,
     status: &str,
     update_available: bool,
 ) -> String {
-    let update_text = if update_available { " · 有新版本" } else { "" };
+    let update_text = if update_available {
+        " · 有新版本"
+    } else {
+        ""
+    };
     if status == "error" {
         return format!("Codex 额度暂时无法获取{update_text}");
     }
-    match primary_remaining {
-        Some(primary) => {
-            let weekly = secondary_remaining
-                .map(|secondary| format!(" / 周 {secondary}%"))
+    match quota_remaining {
+        Some(remaining) => {
+            let reset_text = reset_credits_available
+                .map(|count| format!(" · 重置 {count}次"))
                 .unwrap_or_default();
-            format!("Codex 剩余: 5小时 {primary}%{weekly}{update_text}")
+            format!(
+                "Codex 剩余: {} {remaining}%{reset_text}{update_text}",
+                quota_label
+            )
         }
         None => format!("正在读取 Codex 额度{update_text}"),
     }
 }
 
 fn create_tray_image(
-    primary_remaining: Option<i64>,
-    secondary_remaining: Option<i64>,
+    quota_remaining: Option<i64>,
     status: &str,
     update_available: bool,
 ) -> Image<'static> {
@@ -693,8 +722,7 @@ fn create_tray_image(
         palette.border,
         palette.background,
         palette.track,
-        pick_quota_color(primary_remaining, status, palette.dim),
-        pick_quota_color(secondary_remaining, status, palette.dim),
+        pick_quota_color(quota_remaining, status, palette.dim),
     );
     if update_available {
         fill_update_badge(&mut rgba, size);
@@ -746,8 +774,7 @@ fn fill_cloud_mark(
     border: Color,
     background: Color,
     track: Color,
-    primary_color: Color,
-    secondary_color: Color,
+    quota_color: Color,
 ) {
     let scale = canvas_size as f64 / 32.0;
     for y in 0..canvas_size {
@@ -756,19 +783,13 @@ fn fill_cloud_mark(
             let py = (y as f64 + 0.5) / scale;
             let distance = cloud_signed_distance(px, py);
             if distance <= 0.0 {
-                let color = if distance > -1.05 {
-                    border
-                } else {
-                    background
-                };
+                let color = if distance > -1.05 { border } else { background };
                 set_pixel(rgba, canvas_size, x, y, color);
             }
         }
     }
-    fill_cloud_progress_bar(rgba, canvas_size, 6.9, track);
-    fill_cloud_progress_bar(rgba, canvas_size, 6.9, primary_color);
-    fill_cloud_progress_bar(rgba, canvas_size, 18.2, track);
-    fill_cloud_progress_bar(rgba, canvas_size, 18.2, secondary_color);
+    fill_cloud_progress_bar(rgba, canvas_size, 12.8, track);
+    fill_cloud_progress_bar(rgba, canvas_size, 12.8, quota_color);
 }
 
 fn cloud_signed_distance(x: f64, y: f64) -> f64 {
@@ -794,10 +815,7 @@ fn fill_cloud_progress_bar(rgba: &mut [u8], canvas_size: usize, y: f64, color: C
     fill_rounded_rect_in_cloud(
         rgba,
         canvas_size,
-        x,
-        y,
-        width,
-        height,
+        (x, y, width, height),
         height / 2.0,
         color,
     );
@@ -806,13 +824,11 @@ fn fill_cloud_progress_bar(rgba: &mut [u8], canvas_size: usize, y: f64, color: C
 fn fill_rounded_rect_in_cloud(
     rgba: &mut [u8],
     canvas_size: usize,
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
+    bounds: (f64, f64, f64, f64),
     radius: f64,
     color: Color,
 ) {
+    let (x, y, width, height) = bounds;
     let scale = canvas_size as f64 / 32.0;
     let start_x = (x * scale).floor().max(0.0) as usize;
     let end_x = ((x + width) * scale).ceil().min(canvas_size as f64) as usize;

@@ -14,7 +14,7 @@ use tokio::process::{Child, ChildStdout, Command};
 use tokio::time::timeout;
 
 const CLIENT_NAME: &str = "codex-quota-monitor-v2";
-const CLIENT_VERSION: &str = "2.3.7";
+const CLIENT_VERSION: &str = "2.6.2";
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(15);
 const CACHE_FILE: &str = "last-quota.json";
 #[cfg(windows)]
@@ -38,14 +38,15 @@ pub struct QuotaSnapshot {
     pub limit_name: String,
     pub plan_type: String,
     pub updated_at: String,
-    pub primary_remaining: i64,
-    pub primary_reset: String,
-    pub secondary_remaining: i64,
-    pub secondary_reset: String,
+    pub quota_label: String,
+    pub quota_remaining: i64,
+    pub quota_reset: String,
+    pub reset_credits_available: Option<i64>,
 }
 
 #[derive(Clone, Debug)]
 struct WindowQuota {
+    label: String,
     remaining: i64,
     reset: String,
 }
@@ -147,13 +148,13 @@ fn is_suspicious_full_snapshot(snapshot: &QuotaSnapshot, previous: Option<&Quota
         return false;
     };
 
-    snapshot.limit_name == previous.limit_name
-        && snapshot.plan_type == previous.plan_type
-        && snapshot.primary_remaining == 100
-        && snapshot.secondary_remaining == 100
-        && ((previous.primary_remaining < 100 && snapshot.primary_reset == previous.primary_reset)
-            || (previous.secondary_remaining < 100
-                && snapshot.secondary_reset == previous.secondary_reset))
+    if snapshot.limit_name != previous.limit_name || snapshot.plan_type != previous.plan_type {
+        return false;
+    }
+
+    snapshot.quota_remaining == 100
+        && previous.quota_remaining < 100
+        && snapshot.quota_reset == previous.quota_reset
 }
 
 fn cache_file(app: &AppHandle) -> Option<PathBuf> {
@@ -277,8 +278,7 @@ fn normalize_rate_limits(payload: &Value) -> Result<QuotaSnapshot, QuotaError> {
         .or_else(|| payload.get("rateLimits"))
         .ok_or_else(|| QuotaError("Codex returned no rate limit data.".into()))?;
 
-    let primary = convert_window("primary", snapshot.get("primary"))?;
-    let secondary = convert_window("secondary", snapshot.get("secondary"))?;
+    let quota = convert_required_window("primary", "周额度", snapshot.get("primary"))?;
     let limit_name = snapshot
         .get("limitName")
         .and_then(Value::as_str)
@@ -295,27 +295,42 @@ fn normalize_rate_limits(payload: &Value) -> Result<QuotaSnapshot, QuotaError> {
         limit_name,
         plan_type,
         updated_at: Local::now().format("%H:%M:%S").to_string(),
-        primary_remaining: primary.remaining,
-        primary_reset: primary.reset,
-        secondary_remaining: secondary.remaining,
-        secondary_reset: secondary.reset,
+        quota_label: quota.label,
+        quota_remaining: quota.remaining,
+        quota_reset: quota.reset,
+        reset_credits_available: payload
+            .get("rateLimitResetCredits")
+            .and_then(|credits| credits.get("availableCount"))
+            .and_then(Value::as_i64),
     })
 }
 
-fn convert_window(label: &str, source: Option<&Value>) -> Result<WindowQuota, QuotaError> {
+fn convert_required_window(
+    field_name: &str,
+    default_label: &str,
+    source: Option<&Value>,
+) -> Result<WindowQuota, QuotaError> {
     let source = source
-        .ok_or_else(|| QuotaError(format!("Codex returned no {label} rate limit window.")))?;
+        .ok_or_else(|| QuotaError(format!("Codex returned no {field_name} rate limit window.")))?;
+    convert_window(field_name, default_label, source)
+}
+
+fn convert_window(
+    field_name: &str,
+    default_label: &str,
+    source: &Value,
+) -> Result<WindowQuota, QuotaError> {
     let used = source
         .get("usedPercent")
         .and_then(Value::as_f64)
         .ok_or_else(|| {
             QuotaError(format!(
-                "Codex returned incomplete {label} rate limit data."
+                "Codex returned incomplete {field_name} rate limit data."
             ))
         })?;
     if !(0.0..=100.0).contains(&used) {
         return Err(QuotaError(format!(
-            "Codex returned invalid {label} usage percent: {used}."
+            "Codex returned invalid {field_name} usage percent: {used}."
         )));
     }
     let remaining = (100.0 - used).round().clamp(0.0, 100.0) as i64;
@@ -325,7 +340,25 @@ fn convert_window(label: &str, source: Option<&Value>) -> Result<WindowQuota, Qu
         .map(format_reset_time)
         .unwrap_or_else(|| "unknown".into());
 
-    Ok(WindowQuota { remaining, reset })
+    Ok(WindowQuota {
+        label: window_label(source, default_label),
+        remaining,
+        reset,
+    })
+}
+
+fn window_label(source: &Value, default_label: &str) -> String {
+    let Some(minutes) = source.get("windowDurationMins").and_then(Value::as_i64) else {
+        return default_label.to_string();
+    };
+    match minutes {
+        10080 => "周额度".into(),
+        value if value > 0 && value % 10080 == 0 => format!("{}周", value / 10080),
+        value if value > 0 && value % 1440 == 0 => format!("{}天", value / 1440),
+        value if value > 0 && value % 60 == 0 => format!("{}小时", value / 60),
+        value if value > 0 => format!("{value}分钟"),
+        _ => default_label.to_string(),
+    }
 }
 
 fn format_reset_time(epoch_seconds: i64) -> String {
@@ -346,6 +379,19 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn quota_snapshot(plan_type: &str, quota_remaining: i64, quota_reset: &str) -> QuotaSnapshot {
+        QuotaSnapshot {
+            status: "ready".into(),
+            limit_name: "Codex".into(),
+            plan_type: plan_type.into(),
+            updated_at: "01:20:00".into(),
+            quota_label: "周额度".into(),
+            quota_remaining,
+            quota_reset: quota_reset.into(),
+            reset_credits_available: None,
+        }
+    }
+
     #[test]
     fn normalize_rate_limits_requires_used_percent() {
         let payload = json!({
@@ -354,7 +400,7 @@ mod tests {
                     "limitName": "Codex",
                     "planType": "pro",
                     "primary": { "resetsAt": 1893456000 },
-                    "secondary": { "usedPercent": 40.0, "resetsAt": 1893456000 }
+                    "secondary": null
                 }
             }
         });
@@ -371,38 +417,45 @@ mod tests {
                     "limitName": "Codex",
                     "planType": "pro",
                     "primary": { "usedPercent": 0.0, "resetsAt": 1893456000 },
-                    "secondary": { "usedPercent": 25.0, "resetsAt": 1893456000 }
+                    "secondary": null
                 }
             }
         });
 
         let snapshot = normalize_rate_limits(&payload).unwrap();
-        assert_eq!(snapshot.primary_remaining, 100);
-        assert_eq!(snapshot.secondary_remaining, 75);
+        assert_eq!(snapshot.quota_label, "周额度");
+        assert_eq!(snapshot.quota_remaining, 100);
+    }
+
+    #[test]
+    fn normalize_rate_limits_accepts_single_primary_window() {
+        let payload = json!({
+            "rateLimits": {
+                "limitName": null,
+                "planType": "pro",
+                "primary": {
+                    "usedPercent": 2.0,
+                    "windowDurationMins": 10080,
+                    "resetsAt": 1893456000
+                },
+                "secondary": null
+            },
+            "rateLimitResetCredits": {
+                "availableCount": 4
+            }
+        });
+
+        let snapshot = normalize_rate_limits(&payload).unwrap();
+        assert_eq!(snapshot.quota_label, "周额度");
+        assert_eq!(snapshot.quota_remaining, 98);
+        assert_ne!(snapshot.quota_reset, "unknown");
+        assert_eq!(snapshot.reset_credits_available, Some(4));
     }
 
     #[test]
     fn rejects_suspicious_full_snapshot_when_reset_does_not_advance() {
-        let previous = QuotaSnapshot {
-            status: "ready".into(),
-            limit_name: "Codex".into(),
-            plan_type: "pro".into(),
-            updated_at: "01:20:00".into(),
-            primary_remaining: 99,
-            primary_reset: "04:20".into(),
-            secondary_remaining: 28,
-            secondary_reset: "7/14 09:43".into(),
-        };
-        let snapshot = QuotaSnapshot {
-            status: "ready".into(),
-            limit_name: "Codex".into(),
-            plan_type: "pro".into(),
-            updated_at: "01:23:10".into(),
-            primary_remaining: 100,
-            primary_reset: "04:20".into(),
-            secondary_remaining: 100,
-            secondary_reset: "7/15 11:40".into(),
-        };
+        let previous = quota_snapshot("pro", 99, "7/20 02:59");
+        let snapshot = quota_snapshot("pro", 100, "7/20 02:59");
 
         let error = reject_suspicious_full_snapshot(&snapshot, Some(&previous)).unwrap_err();
         assert!(error.0.contains("temporary placeholder quota data"));
@@ -410,68 +463,23 @@ mod tests {
 
     #[test]
     fn accepts_full_snapshot_when_reset_time_advances() {
-        let previous = QuotaSnapshot {
-            status: "ready".into(),
-            limit_name: "Codex".into(),
-            plan_type: "pro".into(),
-            updated_at: "14:01:11".into(),
-            primary_remaining: 80,
-            primary_reset: "15:11".into(),
-            secondary_remaining: 95,
-            secondary_reset: "7/18 01:39".into(),
-        };
-        let snapshot = QuotaSnapshot {
-            status: "ready".into(),
-            limit_name: "Codex".into(),
-            plan_type: "pro".into(),
-            updated_at: "15:12:10".into(),
-            primary_remaining: 100,
-            primary_reset: "20:11".into(),
-            secondary_remaining: 100,
-            secondary_reset: "7/18 17:12".into(),
-        };
+        let previous = quota_snapshot("pro", 80, "7/20 02:59");
+        let snapshot = quota_snapshot("pro", 100, "7/21 02:59");
 
         reject_suspicious_full_snapshot(&snapshot, Some(&previous)).unwrap();
     }
 
     #[test]
     fn accepts_full_snapshot_without_previous_cache() {
-        let snapshot = QuotaSnapshot {
-            status: "ready".into(),
-            limit_name: "Codex".into(),
-            plan_type: "pro".into(),
-            updated_at: "01:23:10".into(),
-            primary_remaining: 100,
-            primary_reset: "04:20".into(),
-            secondary_remaining: 100,
-            secondary_reset: "7/15 11:40".into(),
-        };
+        let snapshot = quota_snapshot("pro", 100, "7/20 02:59");
 
         reject_suspicious_full_snapshot(&snapshot, None).unwrap();
     }
 
     #[test]
     fn accepts_full_snapshot_for_different_plan() {
-        let previous = QuotaSnapshot {
-            status: "ready".into(),
-            limit_name: "Codex".into(),
-            plan_type: "pro".into(),
-            updated_at: "01:20:00".into(),
-            primary_remaining: 99,
-            primary_reset: "04:20".into(),
-            secondary_remaining: 28,
-            secondary_reset: "7/14 09:43".into(),
-        };
-        let snapshot = QuotaSnapshot {
-            status: "ready".into(),
-            limit_name: "Codex".into(),
-            plan_type: "team".into(),
-            updated_at: "01:23:10".into(),
-            primary_remaining: 100,
-            primary_reset: "04:20".into(),
-            secondary_remaining: 100,
-            secondary_reset: "7/15 11:40".into(),
-        };
+        let previous = quota_snapshot("pro", 99, "7/20 02:59");
+        let snapshot = quota_snapshot("team", 100, "7/20 02:59");
 
         reject_suspicious_full_snapshot(&snapshot, Some(&previous)).unwrap();
     }

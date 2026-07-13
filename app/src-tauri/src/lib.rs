@@ -52,8 +52,8 @@ fn set_mode(app: AppHandle, mode: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn remember_window_state(app: AppHandle) {
-    window::remember_window_state(&app);
+fn set_small_actions_collapsed(app: AppHandle, collapsed: bool) -> Result<(), String> {
+    window::set_small_actions_collapsed(&app, collapsed).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -84,8 +84,9 @@ fn set_appearance_menu_state(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TrayQuotaState {
-    primary_remaining: Option<i64>,
-    secondary_remaining: Option<i64>,
+    quota_label: Option<String>,
+    quota_remaining: Option<i64>,
+    reset_credits_available: Option<i64>,
     status: String,
 }
 
@@ -93,8 +94,9 @@ struct TrayQuotaState {
 fn update_tray_quota(app: AppHandle, state: TrayQuotaState) -> Result<(), String> {
     tray::update_quota_icon(
         &app,
-        state.primary_remaining,
-        state.secondary_remaining,
+        state.quota_label.as_deref(),
+        state.quota_remaining,
+        state.reset_credits_available,
         &state.status,
     )
     .map_err(|error| error.to_string())
@@ -126,11 +128,11 @@ pub fn run() {
             None,
         ))
         .on_window_event(|window, event| {
-            if window.label() == "main"
-                && matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_))
+            if matches!(window.label(), "main" | "ring")
+                && matches!(event, WindowEvent::Resized(_) | WindowEvent::Moved(_))
             {
                 let app = window.app_handle().clone();
-                window::remember_window_state(&app);
+                window::handle_window_changed(&app, window.label());
             }
         })
         .setup(|app| {
@@ -138,6 +140,7 @@ pub fn run() {
                 return Ok(());
             }
             window::init_state(app.handle())?;
+            window::prepare_ring_window(app.handle())?;
             tray::init_tray(app.handle())?;
             if let Some(window) = app.get_webview_window("main") {
                 let initial_mode = window::get_state(app.handle()).mode;
@@ -154,7 +157,7 @@ pub fn run() {
             toggle_topmost,
             get_window_state,
             set_mode,
-            remember_window_state,
+            set_small_actions_collapsed,
             show_context_menu,
             set_autostart_menu_checked,
             set_auto_refresh_menu_seconds,

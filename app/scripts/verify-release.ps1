@@ -222,8 +222,21 @@ function Test-AppStateFile {
     throw "未找到 window-state.json。请先启动一次便携版。"
   }
 
-  $state = Get-Content -LiteralPath $stateFile -Raw -Encoding UTF8 | ConvertFrom-Json
-  if (($state.mode -ne "small") -and ($state.mode -ne "large")) {
+  $state = $null
+  for ($attempt = 0; $attempt -lt 50; $attempt++) {
+    $state = Get-Content -LiteralPath $stateFile -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (($state.schemaVersion -eq 1) -and ($state.sizeFormat -eq "logical-outer-v1")) {
+      break
+    }
+    Start-Sleep -Milliseconds 200
+  }
+  if ($state.schemaVersion -ne 1) {
+    throw "schemaVersion 异常：$($state.schemaVersion)"
+  }
+  if ($state.sizeFormat -ne "logical-outer-v1") {
+    throw "sizeFormat 异常：$($state.sizeFormat)"
+  }
+  if (($state.mode -ne "small") -and ($state.mode -ne "large") -and ($state.mode -ne "ring")) {
     throw "mode 字段异常：$($state.mode)"
   }
   if ($null -eq $state.alwaysOnTop) {
@@ -241,11 +254,22 @@ function Test-AppStateFile {
     if (($null -eq $state.largeSize.width) -or ($null -eq $state.largeSize.height)) {
       throw "largeSize 字段缺少 width/height。"
     }
-    if (($state.largeSize.width -lt 200) -or ($state.largeSize.width -gt 380)) {
+    if (($state.largeSize.width -lt 200) -or ($state.largeSize.width -gt 340)) {
       throw "largeSize.width 超出范围：$($state.largeSize.width)"
     }
-    if (($state.largeSize.height -lt 100) -or ($state.largeSize.height -gt 200)) {
+    if (($state.largeSize.height -lt 50) -or ($state.largeSize.height -gt 140)) {
       throw "largeSize.height 超出范围：$($state.largeSize.height)"
+    }
+  }
+  if ($state.ringSize) {
+    if (($null -eq $state.ringSize.width) -or ($null -eq $state.ringSize.height)) {
+      throw "ringSize 字段缺少 width/height。"
+    }
+    if (($state.ringSize.width -lt 100) -or ($state.ringSize.height -lt 100)) {
+      throw "ringSize 低于最小尺寸：$($state.ringSize.width)x$($state.ringSize.height)"
+    }
+    if (($state.ringSize.width -gt 300) -or ($state.ringSize.height -gt 300)) {
+      throw "ringSize 高于最大尺寸：$($state.ringSize.width)x$($state.ringSize.height)"
     }
   }
 
@@ -339,11 +363,18 @@ function Invoke-CodexQuotaProbe {
       throw "Codex returned no rate limit data."
     }
 
-    $primaryUsed = if ($snapshot.primary.usedPercent -ne $null) { [double]$snapshot.primary.usedPercent } else { 0 }
-    $secondaryUsed = if ($snapshot.secondary.usedPercent -ne $null) { [double]$snapshot.secondary.usedPercent } else { 0 }
-    $primaryRemaining = [Math]::Round([Math]::Max(0, [Math]::Min(100, 100 - $primaryUsed)))
-    $secondaryRemaining = [Math]::Round([Math]::Max(0, [Math]::Min(100, 100 - $secondaryUsed)))
-    return "5小时剩余 $primaryRemaining% / 周剩余 $secondaryRemaining%"
+    if ($snapshot.primary.usedPercent -eq $null) {
+      throw "Codex returned incomplete primary rate limit data."
+    }
+    $used = [double]$snapshot.primary.usedPercent
+    $remaining = [Math]::Round([Math]::Max(0, [Math]::Min(100, 100 - $used)))
+    $label = if ($snapshot.primary.windowDurationMins -eq 10080) { "周额度" } else { "额度" }
+    $credits = if ($result.rateLimitResetCredits -and $result.rateLimitResetCredits.availableCount -ne $null) {
+      " / 可用重置 $($result.rateLimitResetCredits.availableCount)次"
+    } else {
+      ""
+    }
+    return "$label 剩余 $remaining%$credits"
   } finally {
     try {
       if ($process -and -not $process.HasExited) {
@@ -372,6 +403,11 @@ try {
   $versionOk = $versions.Count -eq 1
   $versionDetail = "package.json=$($packageJson.version), tauri.conf.json=$($tauriConfig.version), Cargo.toml=$cargoVersion"
   Add-Result -Name "版本号同步" -Ok $versionOk -Detail $versionDetail
+
+  $mainWindow = $tauriConfig.app.windows | Where-Object { $_.label -eq "main" } | Select-Object -First 1
+  $maximizableOk = $null -ne $mainWindow -and $mainWindow.maximizable -eq $false
+  $maximizableDetail = if ($maximizableOk) { "main 窗口已禁用 Windows 最大化" } else { "main 窗口未禁用 Windows 最大化" }
+  Add-Result -Name "禁止窗口最大化" -Ok $maximizableOk -Detail $maximizableDetail
 
   $repoRoot = Resolve-Path (Join-Path $projectRoot "..")
   $portableExe = Join-Path $repoRoot ("{0} {1} Portable.exe" -f $tauriConfig.productName, $tauriConfig.version)

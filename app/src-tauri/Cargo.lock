@@ -525,7 +525,7 @@ dependencies = [
 
 [[package]]
 name = "codex-quota-v2"
-version = "2.3.7"
+version = "2.6.2"
 dependencies = [
  "chrono",
  "futures-util",
@@ -539,6 +539,7 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-single-instance",
  "tokio",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

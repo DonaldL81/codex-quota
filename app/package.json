@@ -1,6 +1,6 @@
 {
     "name":  "codex-quota-v2",
-    "version":  "2.3.7",
+    "version":  "2.6.2",
     "private":  true,
     "type":  "module",
     "scripts":  {

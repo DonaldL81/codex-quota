@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import { listen, type Event as TauriEvent } from "@tauri-apps/api/event";
+  import { emit, listen, type Event as TauriEvent } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 
@@ -10,20 +10,16 @@
     limitName: string;
     planType: string;
     updatedAt: string;
-    primaryRemaining: number;
-    primaryReset: string;
-    secondaryRemaining: number;
-    secondaryReset: string;
+    quotaLabel: string;
+    quotaRemaining: number;
+    quotaReset: string;
+    resetCreditsAvailable?: number | null;
   };
 
-  type QuotaWindow = {
-    label: string;
-    remaining: number;
-    reset: string;
-  };
+  type WindowMode = "small" | "large" | "ring";
 
   type WindowState = {
-    mode: "small" | "large";
+    mode: WindowMode;
     alwaysOnTop: boolean;
     visible: boolean;
   };
@@ -49,7 +45,13 @@
 
   type Status = "loading" | "ready" | "stale" | "error";
   type ColorScheme = "red" | "orange" | "yellow" | "green" | "cyan" | "blue" | "purple" | "black" | "white";
-  type PanelOpacity = 100 | 90 | 80 | 70 | 60 | 50 | 40 | 30 | 20 | 10;
+  type PanelOpacity = 100 | 90 | 80 | 70 | 60 | 50 | 40 | 30 | 20 | 10 | 0;
+  type RingSegment = {
+    index: number;
+    length: number;
+    offset: number;
+    color: string;
+  };
   type CurrentWindow = ReturnType<typeof getCurrentWindow>;
   type RawQuota = Partial<QuotaSnapshot> & Record<string, unknown>;
   type RefreshOptions = {
@@ -59,13 +61,15 @@
   const defaultAutoRefreshSeconds = 30;
   const autoRefreshPresets = [30, 60, 300, 600, 1200, 1800, 3600];
   const colorSchemes: ColorScheme[] = ["red", "orange", "yellow", "green", "cyan", "blue", "purple", "black", "white"];
-  const opacityPresets: PanelOpacity[] = [100, 90, 80, 70, 60, 50, 40, 30, 20, 10];
+  const opacityPresets: PanelOpacity[] = [100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0];
   const visibleCacheSyncMs = 5_000;
   const invokeTimeoutMs = 35_000;
   const refreshRetryDelayMs = 1_500;
   const largeBaseWidth = 200;
-  const largeBaseHeight = 112;
+  const largeBaseHeight = 50;
   const dragThresholdPx = 4;
+  const ringSegmentCount = 120;
+  const ringGradientMidpoint = 58;
   const quotaCacheKey = "codex-quota-v2:last-quota";
   const autoRefreshCacheKey = "codex-quota-v2:auto-refresh-seconds";
   const colorSchemeCacheKey = "codex-quota-v2:color-scheme";
@@ -74,9 +78,9 @@
   const previewParams =
     typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search);
   const previewEnabled = previewParams.has("mock");
-  const previewInitialMode: "small" | "large" = previewParams.get("mode") === "large" ? "large" : "small";
+  const previewInitialMode: WindowMode = normalizeMode(previewParams.get("mode"));
 
-  let mode: "small" | "large" = previewInitialMode;
+  let mode: WindowMode = previewInitialMode;
   let alwaysOnTop = true;
   let panelVisible = true;
   let autostart = false;
@@ -100,12 +104,19 @@
   let updatePanelOpen = false;
   let toast = "";
   let toastTimer: number | undefined;
+  let interfaceReady = previewEnabled;
   let uiScale = 1;
   let widthScale = 1;
   let heightScale = 1;
+  let largeHeaderVisible = false;
+  let compactActionsVisible = false;
+  let chromeRevealReady = false;
+  let chromeRevealBlockedUntil = 0;
+  let chromeRevealAnchor: { x: number; y: number } | null = null;
   let refreshTimer: number | undefined;
   let cacheSyncTimer: number | undefined;
   let appWindow: CurrentWindow | null = null;
+  let windowLabel = "main";
   let pendingPointer:
     | {
         id: number;
@@ -113,22 +124,25 @@
         y: number;
       }
     | null = null;
-
-  $: quotaWindows = makeQuotaWindows(displayQuota);
   $: isSmall = mode === "small";
+  $: isRing = mode === "ring";
   $: hasQuota = hasUsableQuota(displayQuota);
   $: subtitleText = makeSubtitle(displayQuota, lastRefreshText);
   $: statusMessage = makeStatusText(status, errorText, displayQuota, lastRefreshText);
   $: updateVisible = updatePanelOpen && (updateChecking || updateDownloading || !!updateErrorText || !!updateInfo?.available);
   $: updatePercent = clamp(Math.round(updateProgress?.percent ?? 0), 0, 100);
   $: updateNoticeText = makeUpdateNoticeText();
-  $: bottomNoticeText = makeBottomNoticeText(status, quotaWindows.length > 0, updateNoticeText, errorText);
+  $: bottomNoticeText = makeBottomNoticeText(status, hasQuota, updateNoticeText, errorText);
+  $: ringSegments = makeRingSegments(displayQuota?.quotaRemaining ?? 0);
+  $: ringReset = splitResetText(displayQuota?.quotaReset);
+  $: isControllerWindow = windowLabel === "main";
   $: scaleStyle = `--ui-scale:${uiScale.toFixed(3)};--width-scale:${widthScale.toFixed(3)};--height-scale:${heightScale.toFixed(3)};--panel-opacity:${(panelOpacity / 100).toFixed(2)};`;
-  $: shellClass = `shell ${isSmall ? "small-mode" : "large-mode"} color-${colorScheme} ${darkMode ? "dark-mode" : ""} ${panelOpacity < 100 ? "composite-refresh" : ""}`;
+  $: shellClass = `shell ${mode}-mode color-${colorScheme} ${darkMode ? "dark-mode" : ""} ${interfaceReady ? "" : "interface-pending"} ${isSmall && !compactActionsVisible ? "small-actions-hidden" : ""} ${!isSmall && !largeHeaderVisible ? "topbar-hidden" : ""} ${panelOpacity < 100 ? "composite-refresh" : ""}`;
 
   onMount(() => {
     try {
       appWindow = getCurrentWindow();
+      windowLabel = appWindow.label;
     } catch {
       appWindow = null;
     }
@@ -156,22 +170,24 @@
 
     await hydrateQuotaCache();
     await hydrateWindowState();
-    void refreshQuota();
+    if (isControllerWindow) {
+      void refreshQuota();
+      void refreshAutostartState();
+      void syncAutoRefreshMenu();
+      void syncAppearanceMenu();
+      void checkForUpdates(false);
+    }
     scheduleRefreshTimer();
     scheduleCacheSyncTimer();
-    void refreshAutostartState();
-    void syncAutoRefreshMenu();
-    void syncAppearanceMenu();
-    void checkForUpdates(false);
 
     const unlistenRefresh = await listenSafe("quota-refresh-requested", () => {
-      void refreshQuota();
+      if (isControllerWindow) void refreshQuota();
     });
     const unlistenUpdateCheck = await listenSafe("update-check-requested", () => {
-      void checkForUpdates(true);
+      if (isControllerWindow) void checkForUpdates(true);
     });
     const unlistenUpdateDownload = await listenSafe("update-download-requested", () => {
-      void startUpdateDownload();
+      if (isControllerWindow) void startUpdateDownload();
     });
     const unlistenUpdateProgress = await listenSafe<UpdateProgress>("update-progress", (event) => {
       updateProgress = event.payload;
@@ -193,7 +209,8 @@
       setPanelOpacity(event.payload, false);
     });
     const unlistenMode = await listenSafe<string>("mode-changed", (event) => {
-      mode = event.payload === "large" ? "large" : "small";
+      mode = normalizeMode(event.payload);
+      resetChromeVisibility();
       updateScale();
       void hydrateQuotaCache().finally(() => {
         if (!hasUsableQuota(displayQuota) || status !== "ready") {
@@ -214,7 +231,9 @@
         void refreshQuota();
       }
     });
-    const unlistenAutostart = await listenSafe("toggle-autostart-requested", toggleAutostart);
+    const unlistenAutostart = await listenSafe("toggle-autostart-requested", () => {
+      if (isControllerWindow) void toggleAutostart();
+    });
 
     return () => {
       window.clearInterval(refreshTimer);
@@ -241,12 +260,16 @@
         2_000,
         "窗口状态读取超时"
       );
-      mode = state.mode;
+      const persistedMode = normalizeMode(state.mode);
+      mode = windowLabel === "ring" ? "ring" : persistedMode === "ring" ? "small" : persistedMode;
       alwaysOnTop = state.alwaysOnTop;
       panelVisible = state.visible;
+      resetChromeVisibility();
       updateScale();
     } catch {
       updateScale();
+    } finally {
+      interfaceReady = true;
     }
   }
 
@@ -263,6 +286,7 @@
 
   function scheduleRefreshTimer() {
     window.clearInterval(refreshTimer);
+    if (!isControllerWindow) return;
     refreshTimer = window.setInterval(refreshQuota, autoRefreshSeconds * 1000);
   }
 
@@ -273,6 +297,7 @@
   }
 
   async function refreshQuota(options: RefreshOptions = {}) {
+    if (!previewEnabled && !isControllerWindow) return;
     if (isRefreshing) return;
     isRefreshing = true;
     if (!hasUsableQuota(displayQuota)) {
@@ -304,6 +329,14 @@
     } finally {
       isRefreshing = false;
     }
+  }
+
+  async function requestQuotaRefresh() {
+    if (isControllerWindow) {
+      await refreshQuota();
+      return;
+    }
+    await emit("quota-refresh-requested");
   }
 
   async function readLiveQuota() {
@@ -358,11 +391,13 @@
   }
 
   async function updateTrayQuota(nextStatus: "ready" | "stale" | "error", currentQuota: QuotaSnapshot | null) {
+    if (!isControllerWindow) return;
     try {
       await invoke("update_tray_quota", {
         state: {
-          primaryRemaining: currentQuota?.primaryRemaining ?? null,
-          secondaryRemaining: currentQuota?.secondaryRemaining ?? null,
+          quotaLabel: currentQuota?.quotaLabel ?? null,
+          quotaRemaining: currentQuota?.quotaRemaining ?? null,
+          resetCreditsAvailable: currentQuota?.resetCreditsAvailable ?? null,
           status: nextStatus
         }
       });
@@ -372,6 +407,7 @@
   }
 
   async function setTrayUpdateAvailable(available: boolean, latestVersion = "") {
+    if (!isControllerWindow) return;
     try {
       await invoke("set_update_available", {
         available,
@@ -383,6 +419,7 @@
   }
 
   async function checkForUpdates(manual: boolean) {
+    if (!isControllerWindow) return;
     if (updateChecking || updateDownloading) return;
     updateChecking = true;
     updateErrorText = "";
@@ -450,13 +487,14 @@
     updatePanelOpen = false;
   }
 
-  async function switchMode(nextMode: "small" | "large") {
-    mode = nextMode;
-    updateScale();
+  async function switchMode(nextMode: WindowMode) {
+    resetChromeVisibility();
     try {
       await invoke("set_mode", { mode: nextMode });
     } catch {
       // Keep the preview usable outside Tauri.
+      mode = nextMode;
+      updateScale();
     }
   }
 
@@ -521,8 +559,10 @@
     autoRefreshSeconds = nextSeconds;
     writeAutoRefreshSeconds(nextSeconds);
     scheduleRefreshTimer();
-    await syncAutoRefreshMenu();
-    showToast(`自动刷新 ${autoRefreshLabel(nextSeconds)}`);
+    if (isControllerWindow) {
+      await syncAutoRefreshMenu();
+      showToast(`自动刷新 ${autoRefreshLabel(nextSeconds)}`);
+    }
   }
 
   async function setColorScheme(nextColorScheme: ColorScheme, syncMenu = true) {
@@ -559,23 +599,24 @@
       limitName: "Codex",
       planType: "pro",
       updatedAt: "21:02:02",
-      primaryRemaining: 88,
-      primaryReset: "6/11 00:12",
-      secondaryRemaining: 21,
-      secondaryReset: "6/11 09:09"
+      quotaLabel: "周额度",
+      quotaRemaining: 96,
+      quotaReset: "7/20 02:59",
+      resetCreditsAvailable: 4
     });
   }
 
   function normalizeQuota(raw: RawQuota): QuotaSnapshot {
+    const remaining = readQuotaRemaining(raw);
     return {
       status: readString(raw, "status") || "ready",
       limitName: readString(raw, "limitName", "limit_name") || "Codex",
       planType: readString(raw, "planType", "plan_type"),
       updatedAt: normalizeUpdatedAt(readString(raw, "updatedAt", "updated_at")),
-      primaryRemaining: normalizePercent(readNumber(raw, "primaryRemaining", "primary_remaining")),
-      primaryReset: normalizeReset(readString(raw, "primaryReset", "primary_reset")),
-      secondaryRemaining: normalizePercent(readNumber(raw, "secondaryRemaining", "secondary_remaining")),
-      secondaryReset: normalizeReset(readString(raw, "secondaryReset", "secondary_reset"))
+      quotaLabel: readString(raw, "quotaLabel", "quota_label") || "周额度",
+      quotaRemaining: normalizePercent(remaining),
+      quotaReset: normalizeReset(readQuotaReset(raw, remaining)),
+      resetCreditsAvailable: normalizeCount(readNumber(raw, "resetCreditsAvailable", "reset_credits_available"))
     };
   }
 
@@ -611,6 +652,12 @@
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return 0;
     return Math.round(Math.min(100, Math.max(0, numeric)));
+  }
+
+  function normalizeCount(value?: number | null) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return null;
+    return Math.max(0, Math.round(numeric));
   }
 
   function normalizeReset(value?: string) {
@@ -733,14 +780,14 @@
         if (!hasUsableQuota(lastGoodQuota)) {
           lastGoodQuota = normalized;
         }
-        if (!hasUsableQuota(quota) || status !== "ready") {
+        if (!hasUsableQuota(displayQuota) || status !== "ready") {
           rememberQuota(normalized, "stale");
           await updateTrayQuota("stale", normalized);
         }
         hydrated = true;
       }
     } catch {
-      // Frontend localStorage remains available as a secondary cache.
+      // Frontend localStorage remains available as a local cache.
     }
 
     if (hydrated) return;
@@ -758,22 +805,6 @@
     }
   }
 
-  function makeQuotaWindows(currentQuota: QuotaSnapshot | null): QuotaWindow[] {
-    if (!hasUsableQuota(currentQuota)) return [];
-    return [
-      {
-        label: "5小时额度",
-        remaining: currentQuota.primaryRemaining,
-        reset: resetText(currentQuota.primaryReset)
-      },
-      {
-        label: "周额度",
-        remaining: currentQuota.secondaryRemaining,
-        reset: resetText(currentQuota.secondaryReset)
-      }
-    ];
-  }
-
   function colorClass(value?: number) {
     if (typeof value !== "number") return "danger";
     if (value <= 20) return "danger";
@@ -781,9 +812,54 @@
     return "ok";
   }
 
+  function makeRingSegments(value: number): RingSegment[] {
+    const progress = clamp(value, 0, 100);
+    if (progress <= 0) return [];
+
+    const step = 100 / ringSegmentCount;
+    const segments: RingSegment[] = [];
+    for (let index = 0; index < ringSegmentCount; index += 1) {
+      const start = index * step;
+      if (start >= progress) break;
+
+      const length = Math.min(step, progress - start);
+      const position = clamp(((start + length * 0.5) / progress) * 100, 0, 100);
+      segments.push({
+        index,
+        length,
+        offset: -start,
+        color: ringSegmentColor(position)
+      });
+    }
+    return segments;
+  }
+
+  function ringSegmentColor(position: number) {
+    if (position <= ringGradientMidpoint) {
+      const midMix = clamp((position / ringGradientMidpoint) * 100, 0, 100);
+      return `color-mix(in srgb, var(--ring-start) ${formatPercent(100 - midMix)}, var(--ring-mid) ${formatPercent(midMix)})`;
+    }
+
+    const endMix = clamp(((position - ringGradientMidpoint) / (100 - ringGradientMidpoint)) * 100, 0, 100);
+    return `color-mix(in srgb, var(--ring-mid) ${formatPercent(100 - endMix)}, var(--ring-end) ${formatPercent(endMix)})`;
+  }
+
+  function formatPercent(value: number) {
+    return `${value.toFixed(2)}%`;
+  }
+
   function resetText(value?: string) {
     if (!value || value === "unknown") return "--:--";
     return value;
+  }
+
+  function splitResetText(value?: string) {
+    const normalized = resetText(value).trim();
+    const [date, ...timeParts] = normalized.split(/\s+/);
+    return {
+      date,
+      time: timeParts.join(" ")
+    };
   }
 
   function quotaSnapshotKey(currentQuota: QuotaSnapshot | null) {
@@ -792,25 +868,56 @@
       currentQuota.status,
       currentQuota.limitName,
       currentQuota.planType,
-      currentQuota.primaryRemaining,
-      currentQuota.primaryReset,
-      currentQuota.secondaryRemaining,
-      currentQuota.secondaryReset
+      currentQuota.quotaLabel,
+      currentQuota.quotaRemaining,
+      currentQuota.quotaReset,
+      currentQuota.resetCreditsAvailable
     ].join("|");
   }
 
+  function normalizeMode(value: unknown): WindowMode {
+    if (value === "large" || value === "ring") return value;
+    return "small";
+  }
+
+  function nextMode(currentMode: WindowMode): WindowMode {
+    if (currentMode === "small") return "large";
+    if (currentMode === "large") return "ring";
+    return "small";
+  }
+
+  function nextModeTitle(currentMode: WindowMode) {
+    if (currentMode === "small") return "切换到进度大窗";
+    if (currentMode === "large") return "切换到环形大窗";
+    return "切换到小窗";
+  }
+
   function hasQuotaPercentages(raw: RawQuota) {
-    return (
-      readNumber(raw, "primaryRemaining", "primary_remaining") !== null &&
-      readNumber(raw, "secondaryRemaining", "secondary_remaining") !== null
-    );
+    return readQuotaRemaining(raw) !== null;
+  }
+
+  function readQuotaRemaining(raw: RawQuota) {
+    const current = readNumber(raw, "quotaRemaining", "quota_remaining");
+    if (current !== null) return current;
+    const weekly = readNumber(raw, "secondaryRemaining", "secondary_remaining");
+    if (weekly !== null) return weekly;
+    return readNumber(raw, "primaryRemaining", "primary_remaining");
+  }
+
+  function readQuotaReset(raw: RawQuota, remaining: number | null) {
+    const current = readString(raw, "quotaReset", "quota_reset");
+    if (current) return current;
+    const weekly = readNumber(raw, "secondaryRemaining", "secondary_remaining");
+    if (weekly !== null) return readString(raw, "secondaryReset", "secondary_reset");
+    const primary = readNumber(raw, "primaryRemaining", "primary_remaining");
+    if (primary !== null || remaining !== null) return readString(raw, "primaryReset", "primary_reset");
+    return "";
   }
 
   function hasUsableQuota(currentQuota: QuotaSnapshot | null): currentQuota is QuotaSnapshot {
     return (
       !!currentQuota &&
-      Number.isFinite(currentQuota.primaryRemaining) &&
-      Number.isFinite(currentQuota.secondaryRemaining)
+      Number.isFinite(currentQuota.quotaRemaining)
     );
   }
 
@@ -971,7 +1078,7 @@
   }
 
   function updateScale() {
-    if (mode === "small") {
+    if (mode === "small" || mode === "ring") {
       uiScale = 1;
       widthScale = 1;
       heightScale = 1;
@@ -987,10 +1094,6 @@
 
   function clamp(value: number, min: number, max: number) {
     return Math.min(max, Math.max(min, value));
-  }
-
-  function rememberWindowState() {
-    void invoke("remember_window_state").catch(() => {});
   }
 
   async function hidePanel() {
@@ -1023,7 +1126,7 @@
 
     pendingPointer = null;
     if (!appWindow) return;
-    void appWindow.startDragging().finally(rememberWindowState);
+    void appWindow.startDragging();
   }
 
   function finishPointer(event: PointerEvent) {
@@ -1042,13 +1145,104 @@
     if (!appWindow) return;
     event.preventDefault();
     event.stopPropagation();
-    void appWindow.startResizeDragging("SouthEast").finally(rememberWindowState);
+    void appWindow.startResizeDragging("SouthEast");
+  }
+
+  function showLargeHeaderFromTarget(target: EventTarget | null) {
+    if (!(target instanceof HTMLElement)) return;
+    const interactiveContent =
+      mode === "small"
+        ? target.closest(".compact-summary, .compact-large, .compact-refresh")
+        : mode === "ring"
+          ? target.closest(".quota-ring, .topbar")
+          : target.closest(".quota-item, .topbar");
+    if (interactiveContent) {
+      showLargeHeader();
+    }
+  }
+
+  function handlePointerMove(event: PointerEvent) {
+    if (canRevealChrome(event)) {
+      showLargeHeaderFromTarget(event.target);
+    }
+    movePointer(event);
+  }
+
+  function canRevealChrome(event: PointerEvent) {
+    if (chromeRevealReady) return true;
+    if (Date.now() < chromeRevealBlockedUntil) {
+      chromeRevealAnchor = { x: event.clientX, y: event.clientY };
+      return false;
+    }
+    if (!chromeRevealAnchor) {
+      chromeRevealAnchor = { x: event.clientX, y: event.clientY };
+      return false;
+    }
+    const moved =
+      Math.abs(event.clientX - chromeRevealAnchor.x) > dragThresholdPx ||
+      Math.abs(event.clientY - chromeRevealAnchor.y) > dragThresholdPx;
+    if (!moved) return false;
+    chromeRevealReady = true;
+    chromeRevealAnchor = null;
+    return true;
+  }
+
+  function handlePointerLeave() {
+    hideLargeHeader();
+    chromeRevealReady = false;
+    chromeRevealBlockedUntil = 0;
+    chromeRevealAnchor = null;
+  }
+
+  function finishPointerActions(event: PointerEvent) {
+    finishPointer(event);
+  }
+
+  function cancelPointerActions(event: PointerEvent) {
+    cancelPointer(event);
   }
 
   function showContextMenu(event: MouseEvent) {
     event.preventDefault();
     event.stopPropagation();
     void invoke("show_context_menu").catch(() => {});
+  }
+
+  function showLargeHeader() {
+    if (mode === "small") {
+      setCompactActionsVisible(true);
+    } else {
+      largeHeaderVisible = true;
+    }
+  }
+
+  function hideLargeHeader() {
+    if (mode === "small") {
+      setCompactActionsVisible(false);
+    } else {
+      largeHeaderVisible = false;
+    }
+  }
+
+  function resetChromeVisibility() {
+    largeHeaderVisible = false;
+    compactActionsVisible = false;
+    chromeRevealReady = false;
+    chromeRevealBlockedUntil = Date.now() + 250;
+    chromeRevealAnchor = null;
+  }
+
+  function setCompactActionsVisible(visible: boolean, force = false) {
+    if (!force && compactActionsVisible === visible) return;
+    compactActionsVisible = visible;
+    if (mode === "small") {
+      void invoke("set_small_actions_collapsed", { collapsed: !visible }).catch(() => {});
+    }
+  }
+
+  function resetCreditsText(currentQuota: QuotaSnapshot) {
+    const count = currentQuota.resetCreditsAvailable;
+    return typeof count === "number" && Number.isFinite(count) ? `${count}次` : "--";
   }
 </script>
 
@@ -1059,25 +1253,29 @@
   class={shellClass}
   style={scaleStyle}
   on:pointerdown={startPointer}
-  on:pointermove={movePointer}
-  on:pointerup={finishPointer}
-  on:pointercancel={cancelPointer}
+  on:pointermove={handlePointerMove}
+  on:pointerup={finishPointerActions}
+  on:pointercancel={cancelPointerActions}
+  on:pointerleave={handlePointerLeave}
 >
   <section class="compact-row">
     <span class="compact-summary">
       {#if compactSummaryText()}
         {compactSummaryText()}
       {:else if hasQuota && displayQuota}
-        <span>Codex: 5小时</span><span class={`compact-percent ${colorClass(displayQuota.primaryRemaining)}`}>{displayQuota.primaryRemaining}%</span>
-        <span> / 周</span><span class={`compact-percent ${colorClass(displayQuota.secondaryRemaining)}`}>{displayQuota.secondaryRemaining}%</span>
+        <span class="compact-prefix">Codex:</span>
+        <span class="compact-meter" aria-hidden="true">
+          <span class={`compact-meter-fill ${colorClass(displayQuota.quotaRemaining)}`} style={`width:${displayQuota.quotaRemaining}%`}></span>
+        </span>
+        <span class={`compact-percent ${colorClass(displayQuota.quotaRemaining)}`}>{displayQuota.quotaRemaining}%</span>
       {/if}
     </span>
-    <button class="compact-large" title="打开大窗" aria-label="打开大窗" on:click={() => switchMode("large")}>
+    <button class="compact-large" title={nextModeTitle(mode)} aria-label={nextModeTitle(mode)} on:click={() => switchMode(nextMode(mode))}>
       <svg class="icon action-icon window-icon" viewBox="0 0 24 24" aria-hidden="true">
         <rect x="7" y="7" width="10" height="10" rx="0.5"></rect>
       </svg>
     </button>
-    <button class:spinning={isRefreshing} class="compact-refresh" title="立即刷新" aria-label="立即刷新" on:click={() => refreshQuota()}>
+    <button class:spinning={isRefreshing} class="compact-refresh" title="立即刷新" aria-label="立即刷新" on:click={requestQuotaRefresh}>
       <svg class="icon action-icon refresh-icon" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
         <path d="M21 3v6h-6"></path>
@@ -1090,10 +1288,14 @@
       <p>{subtitleText}</p>
     </div>
     <div class="window-actions">
-      <button title="切换到小窗" aria-label="切换到小窗" on:click={() => switchMode("small")}>
+      <button title={nextModeTitle(mode)} aria-label={nextModeTitle(mode)} on:click={() => switchMode(nextMode(mode))}>
         <svg class="icon action-icon window-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M8 7h9v9H8z"></path>
-          <path d="M5 10h9v9H5z"></path>
+          {#if mode === "large"}
+            <circle cx="12" cy="12" r="7"></circle>
+          {:else}
+            <path d="M8 7h9v9H8z"></path>
+            <path d="M5 10h9v9H5z"></path>
+          {/if}
         </svg>
       </button>
       <button title={alwaysOnTop ? "取消置顶" : "置顶"} aria-label={alwaysOnTop ? "取消置顶" : "置顶"} on:click={toggleTopmost}>
@@ -1101,7 +1303,7 @@
           <path d="M14 3l7 7-2 2-2-2-4 4v5l-1 1-4-4-5 5-1-1 5-5-4-4 1-1h5l4-4-2-2 2-2z"></path>
         </svg>
       </button>
-      <button class:spinning={isRefreshing} title="立即刷新" aria-label="立即刷新" on:click={() => refreshQuota()}>
+      <button class:spinning={isRefreshing} title="立即刷新" aria-label="立即刷新" on:click={requestQuotaRefresh}>
         <svg class="icon action-icon refresh-icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
           <path d="M21 3v6h-6"></path>
@@ -1131,23 +1333,47 @@
   {/if}
 
   <section class="quota-list">
-    {#if quotaWindows.length}
-      {#each quotaWindows as item}
+    {#if hasQuota && displayQuota}
+      {#if isRing}
+        <article class="quota-ring-card">
+          <div class={`quota-ring ${colorClass(displayQuota.quotaRemaining)}`}>
+            <svg class="quota-ring-svg" viewBox="0 0 120 120" aria-hidden="true">
+              <circle class="quota-ring-rail" cx="60" cy="60" r="52" pathLength="100"></circle>
+              <g class="quota-ring-segments">
+                {#each ringSegments as segment (segment.index)}
+                  <circle
+                    class="quota-ring-segment"
+                    cx="60"
+                    cy="60"
+                    r="52"
+                    pathLength="100"
+                    style={`stroke-dasharray:${segment.length} ${100 - segment.length};stroke-dashoffset:${segment.offset};stroke:${segment.color}`}
+                  ></circle>
+                {/each}
+              </g>
+            </svg>
+            <div class="quota-ring-content">
+              <strong class={colorClass(displayQuota.quotaRemaining)}>{displayQuota.quotaRemaining}%</strong>
+              <span class="quota-ring-reset">重置{ringReset.date}<span class="quota-ring-reset-time">{" "}{ringReset.time}</span></span>
+              <span>{resetCreditsText(displayQuota)}</span>
+            </div>
+          </div>
+        </article>
+      {:else}
         <article class="quota-item">
           <div class="quota-line">
             <span class="quota-title">
-              <span class="quota-label">{item.label}</span>
-              <span class="quota-reset">重置 {item.reset}</span>
+              <strong class="quota-brand">Codex</strong><span class="quota-reset">: 重置{resetText(displayQuota.quotaReset)} | {resetCreditsText(displayQuota)}</span>
             </span>
             <span class="quota-facts">
-              <strong class={colorClass(item.remaining)}>{item.remaining}%</strong>
+              <strong class={colorClass(displayQuota.quotaRemaining)}>{displayQuota.quotaRemaining}%</strong>
             </span>
           </div>
           <div class="meter">
-            <div class={`meter-fill ${colorClass(item.remaining)}`} style={`width:${item.remaining}%`}></div>
+            <div class={`meter-fill ${colorClass(displayQuota.quotaRemaining)}`} style={`width:${displayQuota.quotaRemaining}%`}></div>
           </div>
         </article>
-      {/each}
+      {/if}
     {:else}
       <div class="empty">
         {#if status === "error"}
