@@ -2,7 +2,7 @@
 
 一个轻量的 Windows 托盘小工具，用来查看 Codex 账号剩余额度。
 
-当前版本：`2.6.2`
+当前版本：`2.6.3`
 
 Codex Skill 使用提示词：
 
@@ -16,15 +16,15 @@ Codex Skill 使用提示词：
 
 进度大窗：
 
-<img src="assets/large-window.png" alt="进度大窗" width="500">
+<img src="assets/promo-large-window.png" alt="进度大窗宣传图" width="700">
 
 环形大窗：
 
-<img src="assets/ring-window.png" alt="环形大窗" width="280">
+<img src="assets/promo-ring-window.png" alt="环形大窗宣传图" width="700">
 
 小窗模式：
 
-<img src="assets/small-window.png" alt="小窗模式" width="320">
+<img src="assets/promo-small-window.png" alt="小窗模式宣传图" width="700">
 
 ## 特点
 
@@ -41,7 +41,7 @@ Codex Skill 使用提示词：
 
 ```text
 单文件免安装包：
-Codex Quota Monitor 2.6.2 Portable.exe
+Codex Quota Monitor 2.6.3 Portable.exe
 ```
 
 推荐普通用户使用最新的 `Portable.exe`，双击即可运行。首次运行后会自动固定到当前用户程序目录，并维护桌面快捷方式。
@@ -90,6 +90,11 @@ CODEX_QUOTA_CODEX_PATH
 便携版记录的是当前 EXE 路径。如果移动过 EXE 文件，请在右键菜单中关闭开机自启动，再重新开启。
 
 ## 版本说明
+
+### 2.6.3
+
+- README 的界面预览替换为当前小窗、进度大窗和环形大窗三套宣传图，统一展示单周额度、深浅主题和九套配色的现行视觉语言。
+- 本次仅更新宣传素材、版本号和发布说明，应用功能延续 `2.6.2`。
 
 ### 2.6.2
 
