@@ -525,7 +525,7 @@ dependencies = [
 
 [[package]]
 name = "codex-quota-v2"
-version = "2.6.5"
+version = "2.6.7"
 dependencies = [
  "chrono",
  "futures-util",

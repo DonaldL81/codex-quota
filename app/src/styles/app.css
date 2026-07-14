@@ -41,7 +41,6 @@ select {
   --muted-text: #687485;
   --soft-text: #748091;
   --button-text: #6c7a8b;
-  --button-hover: rgba(24, 169, 223, 0.1);
   --panel-highlight: rgba(255, 255, 255, 0.82);
   --panel-shade: rgba(45, 59, 74, 0.1);
   --panel-outline: rgba(93, 117, 138, 0.16);
@@ -52,13 +51,14 @@ select {
   --accent-mid: #18a9df;
   --accent-end: #64d3f5;
   --accent-glow: 24, 169, 223;
+  --button-hover: rgba(var(--accent-glow), 0.1);
   --tone-text: var(--accent-text);
   --tone-start: var(--accent-start);
   --tone-mid: var(--accent-mid);
   --tone-end: var(--accent-end);
   --tone-glow: var(--accent-glow);
-  --meter-track: rgba(var(--tone-glow), 0.14);
-  --meter-ring: rgba(var(--tone-glow), 0.2);
+  --meter-track: rgba(var(--accent-glow), 0.14);
+  --meter-ring: rgba(var(--accent-glow), 0.2);
   position: relative;
   isolation: isolate;
   display: flex;
@@ -117,7 +117,7 @@ select {
   --muted-text: #c8d3df;
   --soft-text: #aebccc;
   --button-text: #e6eef8;
-  --button-hover: rgba(226, 237, 249, 0.12);
+  --button-hover: rgba(var(--accent-glow), 0.16);
   --panel-highlight: rgba(255, 255, 255, 0.08);
   --panel-shade: rgba(0, 0, 0, 0.38);
   --panel-outline: rgba(226, 237, 249, 0.1);
@@ -338,6 +338,12 @@ button {
 
 button:hover {
   color: var(--tone-text);
+  background: var(--button-hover);
+}
+
+button:focus-visible {
+  outline: 1px solid var(--accent-mid);
+  outline-offset: 1px;
   background: var(--button-hover);
 }
 
@@ -651,38 +657,6 @@ button:active {
   }
 }
 
-.ok {
-  --tone-text: var(--accent-text);
-  --tone-start: var(--accent-start);
-  --tone-mid: var(--accent-mid);
-  --tone-end: var(--accent-end);
-  --tone-glow: var(--accent-glow);
-}
-
-.warning {
-  --tone-text: #9d6506;
-  --tone-start: #8f5400;
-  --tone-mid: #d98b12;
-  --tone-end: #f3c35f;
-  --tone-glow: 217, 139, 18;
-}
-
-.danger {
-  --tone-text: #c92a34;
-  --tone-start: #a21f29;
-  --tone-mid: #df3d46;
-  --tone-end: #ff7d82;
-  --tone-glow: 223, 61, 70;
-}
-
-.dark-mode .warning {
-  --tone-text: #f1b64f;
-}
-
-.dark-mode .danger {
-  --tone-text: #ff7379;
-}
-
 .compact-percent,
 .quota-facts strong,
 .quota-ring-content strong {
@@ -827,8 +801,8 @@ button:active {
 
 .small-mode .compact-large:hover,
 .small-mode .compact-refresh:hover {
-  color: var(--tone-text);
-  background: rgba(var(--tone-glow), 0.12);
+  color: var(--accent-text);
+  background: var(--button-hover);
 }
 
 .small-mode.small-actions-hidden .compact-large,

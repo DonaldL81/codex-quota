@@ -45,6 +45,10 @@
 
   type Status = "loading" | "ready" | "stale" | "error";
   type ColorScheme = "red" | "orange" | "yellow" | "green" | "cyan" | "blue" | "purple" | "black" | "white";
+  type ActiveThemeState = {
+    colorScheme: ColorScheme;
+    manualOverride: boolean;
+  };
   type PanelOpacity = 100 | 90 | 80 | 70 | 60 | 50 | 40 | 30 | 20 | 10 | 0;
   type RingSegment = {
     index: number;
@@ -73,6 +77,7 @@
   const quotaCacheKey = "codex-quota-v2:last-quota";
   const autoRefreshCacheKey = "codex-quota-v2:auto-refresh-seconds";
   const colorSchemeCacheKey = "codex-quota-v2:color-scheme";
+  const activeThemeEvent = "active-theme-changed";
   const darkModeCacheKey = "codex-quota-v2:dark-mode";
   const opacityCacheKey = "codex-quota-v2:opacity";
   const previewParams =
@@ -90,7 +95,9 @@
   let lastRefreshText = quota?.updatedAt || "--:--:--";
   let blockedCacheRefreshText = "";
   let autoRefreshSeconds = readAutoRefreshSeconds();
-  let colorScheme = readColorScheme();
+  let preferredColorScheme = readColorScheme();
+  let colorScheme = preferredColorScheme;
+  let manualThemeOverride = false;
   let darkMode = readDarkMode();
   let panelOpacity = readPanelOpacity();
   let status: Status = previewEnabled ? "ready" : quota ? "stale" : "loading";
@@ -200,7 +207,12 @@
       setAutoRefreshSeconds(event.payload);
     });
     const unlistenColorScheme = await listenSafe<ColorScheme>("color-scheme-changed", (event) => {
-      setColorScheme(event.payload, false);
+      void setColorScheme(event.payload, false);
+    });
+    const unlistenActiveTheme = await listenSafe<ActiveThemeState>(activeThemeEvent, (event) => {
+      if (!isActiveThemeState(event.payload)) return;
+      colorScheme = event.payload.colorScheme;
+      manualThemeOverride = event.payload.manualOverride;
     });
     const unlistenDarkMode = await listenSafe<boolean>("dark-mode-changed", (event) => {
       setDarkMode(event.payload, false);
@@ -244,6 +256,7 @@
       unlistenUpdateProgress();
       unlistenAutoRefresh();
       unlistenColorScheme();
+      unlistenActiveTheme();
       unlistenDarkMode();
       unlistenOpacity();
       unlistenMode();
@@ -567,9 +580,33 @@
 
   async function setColorScheme(nextColorScheme: ColorScheme, syncMenu = true) {
     if (!isColorScheme(nextColorScheme)) return;
-    colorScheme = nextColorScheme;
+    preferredColorScheme = nextColorScheme;
     writeColorScheme(nextColorScheme);
+    await applyActiveTheme(nextColorScheme, hasAutomaticTheme(displayQuota), isControllerWindow, syncMenu);
+  }
+
+  async function syncThemeForQuota(nextQuota: QuotaSnapshot) {
+    const automaticTheme = automaticThemeForQuota(nextQuota.quotaRemaining);
+    if (automaticTheme && manualThemeOverride) return;
+    await applyActiveTheme(automaticTheme ?? preferredColorScheme, false, isControllerWindow);
+  }
+
+  async function applyActiveTheme(
+    nextColorScheme: ColorScheme,
+    nextManualOverride: boolean,
+    notify = false,
+    syncMenu = true
+  ) {
+    const changed = colorScheme !== nextColorScheme || manualThemeOverride !== nextManualOverride;
+    colorScheme = nextColorScheme;
+    manualThemeOverride = nextManualOverride;
+    if (!changed || !notify) return;
+
     if (syncMenu) await syncAppearanceMenu();
+    await emit(activeThemeEvent, {
+      colorScheme: nextColorScheme,
+      manualOverride: nextManualOverride
+    } satisfies ActiveThemeState);
   }
 
   async function setDarkMode(nextDarkMode: boolean, syncMenu = true) {
@@ -638,6 +675,7 @@
     blockedCacheRefreshText = "";
     status = nextStatus;
     writeCachedQuota(nextQuota);
+    void syncThemeForQuota(nextQuota);
   }
 
   function normalizeUpdatedAt(value?: string) {
@@ -805,11 +843,21 @@
     }
   }
 
-  function colorClass(value?: number) {
-    if (typeof value !== "number") return "danger";
-    if (value <= 20) return "danger";
-    if (value <= 50) return "warning";
-    return "ok";
+  function automaticThemeForQuota(value?: number): ColorScheme | null {
+    if (typeof value !== "number") return null;
+    if (value <= 20) return "red";
+    if (value <= 50) return "orange";
+    return null;
+  }
+
+  function hasAutomaticTheme(currentQuota: QuotaSnapshot | null) {
+    return automaticThemeForQuota(currentQuota?.quotaRemaining) !== null;
+  }
+
+  function isActiveThemeState(value: unknown): value is ActiveThemeState {
+    if (!value || typeof value !== "object") return false;
+    const candidate = value as Partial<ActiveThemeState>;
+    return isColorScheme(candidate.colorScheme) && typeof candidate.manualOverride === "boolean";
   }
 
   function makeRingSegments(value: number): RingSegment[] {
@@ -1265,9 +1313,9 @@
       {:else if hasQuota && displayQuota}
         <span class="compact-prefix">Codex:</span>
         <span class="compact-meter" aria-hidden="true">
-          <span class={`compact-meter-fill ${colorClass(displayQuota.quotaRemaining)}`} style={`width:${displayQuota.quotaRemaining}%`}></span>
+          <span class="compact-meter-fill" style={`width:${displayQuota.quotaRemaining}%`}></span>
         </span>
-        <span class={`compact-percent ${colorClass(displayQuota.quotaRemaining)}`}>{displayQuota.quotaRemaining}%</span>
+        <span class="compact-percent">{displayQuota.quotaRemaining}%</span>
       {/if}
     </span>
     <button class="compact-large" title={nextModeTitle(mode)} aria-label={nextModeTitle(mode)} on:click={() => switchMode(nextMode(mode))}>
@@ -1336,7 +1384,7 @@
     {#if hasQuota && displayQuota}
       {#if isRing}
         <article class="quota-ring-card">
-          <div class={`quota-ring ${colorClass(displayQuota.quotaRemaining)}`}>
+          <div class="quota-ring">
             <svg class="quota-ring-svg" viewBox="0 0 120 120" aria-hidden="true">
               <circle class="quota-ring-rail" cx="60" cy="60" r="52" pathLength="100"></circle>
               <g class="quota-ring-segments">
@@ -1353,7 +1401,7 @@
               </g>
             </svg>
             <div class="quota-ring-content">
-              <strong class={colorClass(displayQuota.quotaRemaining)}>{displayQuota.quotaRemaining}%</strong>
+              <strong>{displayQuota.quotaRemaining}%</strong>
               <span class="quota-ring-reset">重置{ringReset.date}<span class="quota-ring-reset-time">{" "}{ringReset.time}</span></span>
               <span>{resetCreditsText(displayQuota)}</span>
             </div>
@@ -1366,11 +1414,11 @@
               <strong class="quota-brand">Codex</strong><span class="quota-reset">: 重置{resetText(displayQuota.quotaReset)} | {resetCreditsText(displayQuota)}</span>
             </span>
             <span class="quota-facts">
-              <strong class={colorClass(displayQuota.quotaRemaining)}>{displayQuota.quotaRemaining}%</strong>
+              <strong>{displayQuota.quotaRemaining}%</strong>
             </span>
           </div>
           <div class="meter">
-            <div class={`meter-fill ${colorClass(displayQuota.quotaRemaining)}`} style={`width:${displayQuota.quotaRemaining}%`}></div>
+            <div class="meter-fill" style={`width:${displayQuota.quotaRemaining}%`}></div>
           </div>
         </article>
       {/if}
