@@ -58,7 +58,10 @@ select {
   --tone-end: var(--accent-end);
   --tone-glow: var(--accent-glow);
   --meter-track: rgba(var(--accent-glow), 0.14);
+  --meter-track-start: rgba(var(--accent-glow), 0.18);
+  --meter-track-end: rgba(var(--accent-glow), 0.1);
   --meter-ring: rgba(var(--accent-glow), 0.2);
+  --meter-fill-shadow: rgba(var(--tone-glow), 0.62);
   position: relative;
   isolation: isolate;
   display: flex;
@@ -123,6 +126,10 @@ select {
   --panel-outline: rgba(226, 237, 249, 0.1);
   --panel-edge-shadow: rgba(0, 0, 0, 0.52);
   --panel-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 56%);
+  --meter-track: rgba(var(--accent-glow), 0.34);
+  --meter-track-start: rgba(var(--accent-glow), 0.46);
+  --meter-track-end: rgba(var(--accent-glow), 0.24);
+  --meter-ring: rgba(var(--accent-glow), 0.56);
 }
 
 .shell.color-red {
@@ -477,22 +484,31 @@ button:active {
   height: clamp(5px, calc(5px * var(--ui-scale)), 8px);
   overflow: visible;
   border-radius: 999px;
-  background: var(--meter-track);
-  box-shadow: inset 0 0 0 1px var(--meter-ring);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 36%),
+    linear-gradient(180deg, var(--meter-track-start), var(--meter-track-end)),
+    var(--meter-track);
+  box-shadow:
+    inset 0 0 0 1px var(--meter-ring),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.22);
 }
 
 .update-meter-fill {
   height: 100%;
   min-width: 2px;
   border-radius: inherit;
-  background-color: var(--tone-mid);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.1) 42%, rgba(0, 0, 0, 0.08) 100%),
-    linear-gradient(90deg, var(--tone-start) 0%, var(--tone-mid) 50%, var(--tone-end) 100%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.08) 28%, rgba(255, 255, 255, 0) 29%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--tone-end) 88%, white 12%) 0%,
+      color-mix(in srgb, var(--tone-mid) 82%, var(--tone-end) 18%) 100%
+    );
   box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.18),
-    0 0 4px rgba(var(--tone-glow), 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 0 var(--meter-fill-shadow),
+    0 0 5px rgba(var(--tone-glow), 0.42),
     0 2px 5px rgba(var(--tone-glow), 0.16);
   transition: width 180ms ease;
 }
@@ -664,26 +680,35 @@ button:active {
 
 .meter {
   width: 100%;
-  height: clamp(4px, calc(4px * var(--ui-scale)), 8px);
+  height: clamp(5px, calc(5px * var(--ui-scale)), 9px);
   margin-top: clamp(3px, calc(3px * var(--height-scale)), 7px);
   overflow: visible;
   border-radius: 999px;
-  background: var(--meter-track);
-  box-shadow: inset 0 0 0 1px var(--meter-ring);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 36%),
+    linear-gradient(180deg, var(--meter-track-start), var(--meter-track-end)),
+    var(--meter-track);
+  box-shadow:
+    inset 0 0 0 1px var(--meter-ring),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.22);
 }
 
 .meter-fill {
   height: 100%;
   min-width: 2px;
   border-radius: inherit;
-  background-color: var(--tone-mid);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.1) 42%, rgba(0, 0, 0, 0.08) 100%),
-    linear-gradient(90deg, var(--tone-start) 0%, var(--tone-mid) 50%, var(--tone-end) 100%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.08) 28%, rgba(255, 255, 255, 0) 29%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--tone-end) 88%, white 12%) 0%,
+      color-mix(in srgb, var(--tone-mid) 82%, var(--tone-end) 18%) 100%
+    );
   box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.18),
-    0 0 4px rgba(var(--tone-glow), 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 0 var(--meter-fill-shadow),
+    0 0 5px rgba(var(--tone-glow), 0.42),
     0 2px 5px rgba(var(--tone-glow), 0.16);
 }
 
@@ -760,12 +785,18 @@ button:active {
 .compact-meter {
   position: relative;
   min-width: 28px;
-  height: 5px;
+  height: 6px;
   flex: 1 1 auto;
   overflow: visible;
   border-radius: 999px;
-  background: var(--meter-track);
-  box-shadow: inset 0 0 0 1px var(--meter-ring);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 36%),
+    linear-gradient(180deg, var(--meter-track-start), var(--meter-track-end)),
+    var(--meter-track);
+  box-shadow:
+    inset 0 0 0 1px var(--meter-ring),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.22);
 }
 
 .compact-meter-fill {
@@ -773,14 +804,17 @@ button:active {
   height: 100%;
   min-width: 2px;
   border-radius: inherit;
-  background-color: var(--tone-mid);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.1) 42%, rgba(0, 0, 0, 0.08) 100%),
-    linear-gradient(90deg, var(--tone-start) 0%, var(--tone-mid) 50%, var(--tone-end) 100%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.08) 28%, rgba(255, 255, 255, 0) 29%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--tone-end) 88%, white 12%) 0%,
+      color-mix(in srgb, var(--tone-mid) 82%, var(--tone-end) 18%) 100%
+    );
   box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.18),
-    0 0 4px rgba(var(--tone-glow), 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 0 var(--meter-fill-shadow),
+    0 0 5px rgba(var(--tone-glow), 0.42),
     0 2px 5px rgba(var(--tone-glow), 0.16);
 }
 

@@ -34,12 +34,12 @@ https://github.com/DonaldL81/codex-quota
 仓库根目录和对应 Release 提供单文件免安装包：
 
 ```text
-Codex Quota Monitor 2.6.8 Portable.exe
+Codex Quota Monitor 2.6.9 Portable.exe
 ```
 
 推荐下载最新的 `Portable.exe` 后直接双击运行。首次运行会自动固定到当前用户程序目录并维护桌面快捷方式；稳定入口路径为 `%LOCALAPPDATA%\Programs\Codex Quota Monitor\Codex Quota Monitor.exe`。稳定入口启动成功后，会清理旧的带版本 Portable 包。
 
-GitHub Release 会将文件名中的空格规范化为点号，下载附件时可能显示为 `Codex.Quota.Monitor.2.6.8.Portable.exe`。
+GitHub Release 会将文件名中的空格规范化为点号，下载附件时可能显示为 `Codex.Quota.Monitor.2.6.9.Portable.exe`。
 
 使用前需要：
 
@@ -80,10 +80,10 @@ CODEX_QUOTA_CODEX_PATH
 
 ## 近期更新
 
-### 2.6.8
+### 2.6.9
 
-- 额度变化时，进度条和环形大窗会用短动画展示从旧值变到新值的过程。
-- 每次启动后，进度条和环形大窗会从 100% 快速降到当前额度。
-- 优化暗色主题下进度条填充效果，避免已消耗段看起来像透明轮廓。
+- 优化暗色主题下进度条未填充轨道，右侧槽位显示为实体暗橙底色。
+- 放慢首次启动从 100% 降到当前额度的动画节奏，变化过程更容易看清。
+- 保持后续额度变化的短动效，避免刷新时拖慢界面反馈。
 
 历史版本请查看 [GitHub Releases](https://github.com/DonaldL81/codex-quota/releases)。

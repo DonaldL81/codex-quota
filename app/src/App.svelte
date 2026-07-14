@@ -77,6 +77,9 @@
   const quotaAnimationMinMs = 260;
   const quotaAnimationMaxMs = 520;
   const quotaAnimationPerPercentMs = 3;
+  const quotaStartupAnimationMinMs = 760;
+  const quotaStartupAnimationMaxMs = 1_180;
+  const quotaStartupAnimationPerPercentMs = 6;
   const quotaCacheKey = "codex-quota-v2:last-quota";
   const autoRefreshCacheKey = "codex-quota-v2:auto-refresh-seconds";
   const colorSchemeCacheKey = "codex-quota-v2:color-scheme";
@@ -705,15 +708,16 @@
       return;
     }
 
-    if (!quotaVisualReady) {
+    const startupAnimation = !quotaVisualReady;
+    if (startupAnimation) {
       quotaVisualReady = true;
       visualQuotaRemaining = 100;
     }
 
-    animateQuotaVisual(target);
+    animateQuotaVisual(target, startupAnimation);
   }
 
-  function animateQuotaVisual(targetValue: number) {
+  function animateQuotaVisual(targetValue: number, startupAnimation = false) {
     const target = normalizePercent(targetValue);
     const start = clamp(visualQuotaRemaining, 0, 100);
     cancelQuotaAnimation();
@@ -724,15 +728,14 @@
     }
 
     const startedAt = performance.now();
-    const duration = clamp(
-      quotaAnimationMinMs + Math.abs(start - target) * quotaAnimationPerPercentMs,
-      quotaAnimationMinMs,
-      quotaAnimationMaxMs
-    );
+    const minDuration = startupAnimation ? quotaStartupAnimationMinMs : quotaAnimationMinMs;
+    const maxDuration = startupAnimation ? quotaStartupAnimationMaxMs : quotaAnimationMaxMs;
+    const perPercentMs = startupAnimation ? quotaStartupAnimationPerPercentMs : quotaAnimationPerPercentMs;
+    const duration = clamp(minDuration + Math.abs(start - target) * perPercentMs, minDuration, maxDuration);
 
     const step = (now: number) => {
       const progress = clamp((now - startedAt) / duration, 0, 1);
-      const eased = easeOutCubic(progress);
+      const eased = startupAnimation ? easeInOutCubic(progress) : easeOutCubic(progress);
       visualQuotaRemaining = start + (target - start) * eased;
 
       if (progress < 1) {
@@ -756,6 +759,11 @@
   function easeOutCubic(value: number) {
     const progress = clamp(value, 0, 1);
     return 1 - Math.pow(1 - progress, 3);
+  }
+
+  function easeInOutCubic(value: number) {
+    const progress = clamp(value, 0, 1);
+    return progress < 0.5 ? 4 * progress ** 3 : 1 - Math.pow(-2 * progress + 2, 3) / 2;
   }
 
   function normalizeUpdatedAt(value?: string) {

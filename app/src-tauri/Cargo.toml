@@ -1,6 +1,6 @@
 [package]
 name = "codex-quota-v2"
-version = "2.6.8"
+version = "2.6.9"
 description = "Codex quota monitor for Windows"
 authors = ["Codex"]
 edition = "2021"
