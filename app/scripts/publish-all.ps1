@@ -1,4 +1,8 @@
-﻿$ErrorActionPreference = "Stop"
+﻿param(
+  [switch]$SkipPortableStartup
+)
+
+$ErrorActionPreference = "Stop"
 
 $projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $repoRoot = Resolve-Path (Join-Path $projectRoot "..")
@@ -13,7 +17,11 @@ Write-Host ""
 
 Write-Host ""
 Write-Host "正在执行发布前验证..."
-& (Join-Path $PSScriptRoot "verify-release.ps1")
+if ($SkipPortableStartup) {
+  & (Join-Path $PSScriptRoot "verify-release.ps1") -SkipPortableStartup
+} else {
+  & (Join-Path $PSScriptRoot "verify-release.ps1")
+}
 
 $tauriConfig = Get-Content -LiteralPath "src-tauri\tauri.conf.json" -Raw -Encoding UTF8 | ConvertFrom-Json
 $productName = $tauriConfig.productName

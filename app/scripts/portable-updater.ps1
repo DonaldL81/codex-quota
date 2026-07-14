@@ -9,8 +9,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$markerName = ".codex-quota-portable"
+$legacyPortableMarkerName = ".codex-quota-portable"
 $noShortcutMarkerName = ".codex-quota-no-shortcut"
+$installedVersionFileName = "installed-version.json"
 
 function Get-CodexQuotaProcesses {
   Get-Process -ErrorAction SilentlyContinue |
@@ -70,6 +71,76 @@ function Copy-WithRetry {
   }
 }
 
+function Get-InstalledVersion {
+  param(
+    [Parameter(Mandatory = $true)][string]$Source,
+    [Parameter(Mandatory = $true)][string]$Target
+  )
+
+  $fileVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($Target).FileVersion
+  if ($fileVersion -match '^\d{1,2}\.\d\.\d$') {
+    return $fileVersion
+  }
+
+  $match = [regex]::Match((Split-Path -Leaf $Source), '\d{1,2}\.\d\.\d')
+  if ($match.Success) {
+    return $match.Value
+  }
+
+  throw "Failed to determine installed version."
+}
+
+function Write-InstalledVersionRecord {
+  param(
+    [Parameter(Mandatory = $true)][string]$Source,
+    [Parameter(Mandatory = $true)][string]$Target,
+    [Parameter(Mandatory = $true)][string]$TargetDir
+  )
+
+  $recordPath = Join-Path $TargetDir $installedVersionFileName
+  $temporaryPath = "$recordPath.tmp"
+  $record = [ordered]@{
+    schemaVersion = 1
+    version = Get-InstalledVersion -Source $Source -Target $Target
+    installedAt = [DateTime]::UtcNow.ToString("o")
+    sourceFileName = Split-Path -Leaf $Source
+  }
+  $encoding = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($temporaryPath, (($record | ConvertTo-Json) + [Environment]::NewLine), $encoding)
+  if ([System.IO.File]::Exists($recordPath)) {
+    [System.IO.File]::Replace($temporaryPath, $recordPath, $null)
+  } else {
+    [System.IO.File]::Move($temporaryPath, $recordPath)
+  }
+}
+
+function Remove-VersionedPortablePackages {
+  param(
+    [Parameter(Mandatory = $true)][string]$Source,
+    [Parameter(Mandatory = $true)][string]$Target,
+    [Parameter(Mandatory = $true)][string]$TargetDir
+  )
+
+  $packagePattern = '^Codex[ .]Quota[ .]Monitor[ .]\d{1,2}\.\d\.\d[ .]Portable\.exe$'
+  $stablePath = [System.IO.Path]::GetFullPath($Target)
+  $directories = @(
+    (Split-Path -Parent $Source),
+    $TargetDir
+  ) | Where-Object { $_ } | Select-Object -Unique
+
+  foreach ($directory in $directories) {
+    Get-ChildItem -LiteralPath $directory -File -Filter "*.exe" -ErrorAction SilentlyContinue |
+      Where-Object {
+        $_.Name -match $packagePattern -and
+        -not $_.FullName.Equals($stablePath, [System.StringComparison]::OrdinalIgnoreCase)
+      } |
+      ForEach-Object {
+        Remove-Item -LiteralPath $_.FullName -Force
+        Write-Host "RemovedPackage: $($_.FullName)"
+      }
+  }
+}
+
 function Start-FallbackTarget {
   param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -101,7 +172,6 @@ if (-not $KeepRunning) {
 
 try {
   Copy-WithRetry -From $Source -To $Target
-  Set-Content -LiteralPath (Join-Path $targetDir $markerName) -Value "portable" -Encoding ASCII
 
   $noShortcutMarker = Join-Path $targetDir $noShortcutMarkerName
   if ($NoShortcut) {
@@ -118,8 +188,11 @@ try {
 
 $launched = $false
 if (-not $NoRun) {
-  Start-Process -FilePath $Target | Out-Null
+  Start-Process -FilePath $Target -ErrorAction Stop | Out-Null
   $launched = $true
+  Write-InstalledVersionRecord -Source $Source -Target $Target -TargetDir $targetDir
+  Remove-Item -LiteralPath (Join-Path $targetDir $legacyPortableMarkerName) -Force -ErrorAction SilentlyContinue
+  Remove-VersionedPortablePackages -Source $Source -Target $Target -TargetDir $targetDir
 }
 
 Write-Host "Source: $Source"

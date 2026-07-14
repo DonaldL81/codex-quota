@@ -1,4 +1,8 @@
-﻿$ErrorActionPreference = "Stop"
+﻿param(
+  [switch]$SkipPortableStartup
+)
+
+$ErrorActionPreference = "Stop"
 
 $projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $projectRoot
@@ -418,17 +422,22 @@ try {
     $portableOk = $portableItem.Length -gt (1024 * 1024)
     $portableDetail = "{0} ({1} MB)" -f $portableExe, $portableSizeMb
     Add-Result -Name "便携版 EXE 存在" -Ok $portableOk -Detail $portableDetail
-    try {
-      $startupDetail = Test-PortableStartup -PortableExe $portableExe -StableExe $stableExe
-      Add-Result -Name "便携版启动冒烟" -Ok $true -Detail $startupDetail
-    } catch {
-      Add-Result -Name "便携版启动冒烟" -Ok $false -Detail $_.Exception.Message
-    }
-    try {
-      $stateDetail = Test-AppStateFile -TauriConfig $tauriConfig
-      Add-Result -Name "窗口状态文件" -Ok $true -Detail $stateDetail
-    } catch {
-      Add-Result -Name "窗口状态文件" -Ok $false -Detail $_.Exception.Message
+    if ($SkipPortableStartup) {
+      Add-Result -Name "便携版启动冒烟" -Ok $true -Detail "按 -SkipPortableStartup 请求跳过；未启动 Portable EXE。"
+      Add-Result -Name "窗口状态文件" -Ok $true -Detail "按 -SkipPortableStartup 请求跳过；未读取或写入用户状态。"
+    } else {
+      try {
+        $startupDetail = Test-PortableStartup -PortableExe $portableExe -StableExe $stableExe
+        Add-Result -Name "便携版启动冒烟" -Ok $true -Detail $startupDetail
+      } catch {
+        Add-Result -Name "便携版启动冒烟" -Ok $false -Detail $_.Exception.Message
+      }
+      try {
+        $stateDetail = Test-AppStateFile -TauriConfig $tauriConfig
+        Add-Result -Name "窗口状态文件" -Ok $true -Detail $stateDetail
+      } catch {
+        Add-Result -Name "窗口状态文件" -Ok $false -Detail $_.Exception.Message
+      }
     }
   } else {
     Add-Result -Name "便携版 EXE 存在" -Ok $false -Detail $portableExe

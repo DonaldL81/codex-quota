@@ -36,16 +36,17 @@ select {
   --width-scale: 1;
   --height-scale: 1;
   --panel-opacity: 0.9;
-  --panel-bg-rgb: 244, 246, 248;
+  --panel-bg-rgb: 248, 250, 252;
   --panel-text: #202633;
   --muted-text: #687485;
   --soft-text: #748091;
-  --button-text: #626e7d;
-  --button-hover: rgba(115, 128, 145, 0.12);
+  --button-text: #6c7a8b;
+  --button-hover: rgba(24, 169, 223, 0.1);
   --panel-highlight: rgba(255, 255, 255, 0.82);
   --panel-shade: rgba(45, 59, 74, 0.1);
-  --meter-track: rgba(86, 105, 122, 0.13);
-  --meter-ring: rgba(67, 86, 103, 0.1);
+  --panel-outline: rgba(93, 117, 138, 0.16);
+  --panel-edge-shadow: rgba(38, 56, 74, 0.13);
+  --panel-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0) 56%);
   --accent-text: #118fc5;
   --accent-start: #087eaf;
   --accent-mid: #18a9df;
@@ -56,6 +57,8 @@ select {
   --tone-mid: var(--accent-mid);
   --tone-end: var(--accent-end);
   --tone-glow: var(--accent-glow);
+  --meter-track: rgba(var(--tone-glow), 0.14);
+  --meter-ring: rgba(var(--tone-glow), 0.2);
   position: relative;
   isolation: isolate;
   display: flex;
@@ -81,10 +84,12 @@ select {
   z-index: 0;
   inset: 0;
   border-radius: inherit;
-  background: rgb(var(--panel-bg-rgb));
+  background: var(--panel-sheen), rgb(var(--panel-bg-rgb));
   box-shadow:
     inset 0 1px 0 var(--panel-highlight),
-    inset 0 -1px 0 var(--panel-shade);
+    inset 0 -1px 0 var(--panel-shade),
+    inset 0 0 0 1px var(--panel-outline),
+    inset 0 -6px 12px -9px var(--panel-edge-shadow);
   content: "";
   contain: paint;
   opacity: var(--panel-opacity);
@@ -115,8 +120,9 @@ select {
   --button-hover: rgba(226, 237, 249, 0.12);
   --panel-highlight: rgba(255, 255, 255, 0.08);
   --panel-shade: rgba(0, 0, 0, 0.38);
-  --meter-track: rgba(226, 237, 249, 0.14);
-  --meter-ring: rgba(255, 255, 255, 0.08);
+  --panel-outline: rgba(226, 237, 249, 0.1);
+  --panel-edge-shadow: rgba(0, 0, 0, 0.52);
+  --panel-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 56%);
 }
 
 .shell.color-red {
@@ -331,6 +337,7 @@ button {
 }
 
 button:hover {
+  color: var(--tone-text);
   background: var(--button-hover);
 }
 
@@ -472,11 +479,13 @@ button:active {
   height: 100%;
   min-width: 2px;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--tone-start) 0%, var(--tone-mid) 58%, var(--tone-end) 100%);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0) 62%),
+    linear-gradient(90deg, var(--tone-start) 0%, var(--tone-mid) 50%, var(--tone-end) 100%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    0 0 4px rgba(var(--tone-glow), 0.5),
-    0 0 10px rgba(var(--tone-glow), 0.18);
+    0 0 3px rgba(var(--tone-glow), 0.36),
+    0 2px 5px rgba(var(--tone-glow), 0.14);
   transition: width 180ms ease;
 }
 
@@ -696,11 +705,13 @@ button:active {
   min-width: 2px;
   border-radius: inherit;
   transition: width 180ms ease;
-  background: linear-gradient(90deg, var(--tone-start) 0%, var(--tone-mid) 58%, var(--tone-end) 100%);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0) 62%),
+    linear-gradient(90deg, var(--tone-start) 0%, var(--tone-mid) 50%, var(--tone-end) 100%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    0 0 4px rgba(var(--tone-glow), 0.5),
-    0 0 10px rgba(var(--tone-glow), 0.18);
+    0 0 3px rgba(var(--tone-glow), 0.36),
+    0 2px 5px rgba(var(--tone-glow), 0.14);
 }
 
 .footer,
@@ -789,11 +800,13 @@ button:active {
   height: 100%;
   min-width: 2px;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--tone-start) 0%, var(--tone-mid) 58%, var(--tone-end) 100%);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0) 62%),
+    linear-gradient(90deg, var(--tone-start) 0%, var(--tone-mid) 50%, var(--tone-end) 100%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    0 0 4px rgba(var(--tone-glow), 0.46),
-    0 0 8px rgba(var(--tone-glow), 0.16);
+    0 0 3px rgba(var(--tone-glow), 0.36),
+    0 2px 5px rgba(var(--tone-glow), 0.14);
 }
 
 .compact-percent {
@@ -805,7 +818,17 @@ button:active {
 .small-mode .compact-refresh {
   width: 20px;
   height: 20px;
+  border-radius: 6px;
   font-size: 12px;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.small-mode .compact-large:hover,
+.small-mode .compact-refresh:hover {
+  color: var(--tone-text);
+  background: rgba(var(--tone-glow), 0.12);
 }
 
 .small-mode.small-actions-hidden .compact-large,

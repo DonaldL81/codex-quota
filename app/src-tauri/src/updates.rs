@@ -14,7 +14,6 @@ const RELEASE_API_URL: &str = "https://api.github.com/repos/DonaldL81/codex-quot
 const USER_AGENT: &str = concat!("Codex-Quota-Monitor/", env!("CARGO_PKG_VERSION"));
 const APP_NAME: &str = "Codex Quota Monitor";
 const STABLE_PORTABLE_EXE: &str = "Codex Quota Monitor.exe";
-const PORTABLE_MARKER_FILE: &str = ".codex-quota-portable";
 const NO_SHORTCUT_MARKER_FILE: &str = ".codex-quota-no-shortcut";
 const SHORTCUT_NAME: &str = "Codex Quota Monitor.lnk";
 const SHORTCUT_STATE_FILE: &str = "shortcut-state.json";
@@ -401,7 +400,7 @@ fn should_migrate_versioned_portable(path: &Path) -> bool {
 }
 
 fn is_portable_runtime(path: &Path) -> bool {
-    is_stable_portable_path(path) || has_portable_marker(path)
+    is_stable_portable_path(path)
 }
 
 #[derive(Default, Deserialize, Serialize)]
@@ -607,12 +606,6 @@ fn version_parts(version: &str) -> [u32; 3] {
             .unwrap_or(0);
     }
     parts
-}
-
-fn has_portable_marker(path: &Path) -> bool {
-    path.parent()
-        .map(|parent| parent.join(PORTABLE_MARKER_FILE).is_file())
-        .unwrap_or(false)
 }
 
 fn is_stable_portable_path(path: &Path) -> bool {
