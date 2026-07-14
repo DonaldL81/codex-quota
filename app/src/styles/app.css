@@ -485,13 +485,15 @@ button:active {
   height: 100%;
   min-width: 2px;
   border-radius: inherit;
+  background-color: var(--tone-mid);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0) 62%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.1) 42%, rgba(0, 0, 0, 0.08) 100%),
     linear-gradient(90deg, var(--tone-start) 0%, var(--tone-mid) 50%, var(--tone-end) 100%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    0 0 3px rgba(var(--tone-glow), 0.36),
-    0 2px 5px rgba(var(--tone-glow), 0.14);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.18),
+    0 0 4px rgba(var(--tone-glow), 0.38),
+    0 2px 5px rgba(var(--tone-glow), 0.16);
   transition: width 180ms ease;
 }
 
@@ -626,10 +628,6 @@ button:active {
 .quota-ring-segment {
   stroke: var(--ring-mid);
   stroke-linecap: round;
-  transition:
-    stroke 180ms ease,
-    stroke-dasharray 180ms ease,
-    stroke-dashoffset 180ms ease;
 }
 
 .quota-ring-content {
@@ -678,14 +676,15 @@ button:active {
   height: 100%;
   min-width: 2px;
   border-radius: inherit;
-  transition: width 180ms ease;
+  background-color: var(--tone-mid);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0) 62%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.1) 42%, rgba(0, 0, 0, 0.08) 100%),
     linear-gradient(90deg, var(--tone-start) 0%, var(--tone-mid) 50%, var(--tone-end) 100%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    0 0 3px rgba(var(--tone-glow), 0.36),
-    0 2px 5px rgba(var(--tone-glow), 0.14);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.18),
+    0 0 4px rgba(var(--tone-glow), 0.38),
+    0 2px 5px rgba(var(--tone-glow), 0.16);
 }
 
 .footer,
@@ -774,13 +773,15 @@ button:active {
   height: 100%;
   min-width: 2px;
   border-radius: inherit;
+  background-color: var(--tone-mid);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0) 62%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.1) 42%, rgba(0, 0, 0, 0.08) 100%),
     linear-gradient(90deg, var(--tone-start) 0%, var(--tone-mid) 50%, var(--tone-end) 100%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    0 0 3px rgba(var(--tone-glow), 0.36),
-    0 2px 5px rgba(var(--tone-glow), 0.14);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.18),
+    0 0 4px rgba(var(--tone-glow), 0.38),
+    0 2px 5px rgba(var(--tone-glow), 0.16);
 }
 
 .compact-percent {

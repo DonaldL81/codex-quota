@@ -74,6 +74,9 @@
   const dragThresholdPx = 4;
   const ringSegmentCount = 120;
   const ringGradientMidpoint = 58;
+  const quotaAnimationMinMs = 260;
+  const quotaAnimationMaxMs = 520;
+  const quotaAnimationPerPercentMs = 3;
   const quotaCacheKey = "codex-quota-v2:last-quota";
   const autoRefreshCacheKey = "codex-quota-v2:auto-refresh-seconds";
   const colorSchemeCacheKey = "codex-quota-v2:color-scheme";
@@ -117,6 +120,9 @@
   let heightScale = 1;
   let largeHeaderVisible = false;
   let compactActionsVisible = false;
+  let visualQuotaRemaining = hasUsableQuota(displayQuota) ? 100 : 0;
+  let quotaVisualReady = false;
+  let quotaAnimationFrame: number | undefined;
   let chromeRevealReady = false;
   let chromeRevealBlockedUntil = 0;
   let chromeRevealAnchor: { x: number; y: number } | null = null;
@@ -140,7 +146,8 @@
   $: updatePercent = clamp(Math.round(updateProgress?.percent ?? 0), 0, 100);
   $: updateNoticeText = makeUpdateNoticeText();
   $: bottomNoticeText = makeBottomNoticeText(status, hasQuota, updateNoticeText, errorText);
-  $: ringSegments = makeRingSegments(displayQuota?.quotaRemaining ?? 0);
+  $: visualQuotaWidth = formatPercent(visualQuotaRemaining);
+  $: ringSegments = makeRingSegments(hasQuota ? visualQuotaRemaining : 0);
   $: ringReset = splitResetText(displayQuota?.quotaReset);
   $: isControllerWindow = windowLabel === "main";
   $: scaleStyle = `--ui-scale:${uiScale.toFixed(3)};--width-scale:${widthScale.toFixed(3)};--height-scale:${heightScale.toFixed(3)};--panel-opacity:${(panelOpacity / 100).toFixed(2)};`;
@@ -165,6 +172,7 @@
 
     return () => {
       window.removeEventListener("resize", updateScale);
+      cancelQuotaAnimation();
       cleanup();
     };
   });
@@ -172,11 +180,13 @@
   async function init() {
     if (previewEnabled) {
       updateScale();
+      syncQuotaVisual(displayQuota);
       return () => {};
     }
 
     await hydrateQuotaCache();
     await hydrateWindowState();
+    syncQuotaVisual(displayQuota);
     if (isControllerWindow) {
       void refreshQuota();
       void refreshAutostartState();
@@ -674,8 +684,78 @@
     lastRefreshText = refreshText;
     blockedCacheRefreshText = "";
     status = nextStatus;
+    syncQuotaVisual(nextQuota);
     writeCachedQuota(nextQuota);
     void syncThemeForQuota(nextQuota);
+  }
+
+  function syncQuotaVisual(nextQuota: QuotaSnapshot | null) {
+    if (!hasUsableQuota(nextQuota)) {
+      cancelQuotaAnimation();
+      quotaVisualReady = false;
+      visualQuotaRemaining = 0;
+      return;
+    }
+
+    const target = normalizePercent(nextQuota.quotaRemaining);
+    if (!interfaceReady && !previewEnabled) {
+      cancelQuotaAnimation();
+      quotaVisualReady = false;
+      visualQuotaRemaining = 100;
+      return;
+    }
+
+    if (!quotaVisualReady) {
+      quotaVisualReady = true;
+      visualQuotaRemaining = 100;
+    }
+
+    animateQuotaVisual(target);
+  }
+
+  function animateQuotaVisual(targetValue: number) {
+    const target = normalizePercent(targetValue);
+    const start = clamp(visualQuotaRemaining, 0, 100);
+    cancelQuotaAnimation();
+
+    if (Math.abs(start - target) < 0.1) {
+      visualQuotaRemaining = target;
+      return;
+    }
+
+    const startedAt = performance.now();
+    const duration = clamp(
+      quotaAnimationMinMs + Math.abs(start - target) * quotaAnimationPerPercentMs,
+      quotaAnimationMinMs,
+      quotaAnimationMaxMs
+    );
+
+    const step = (now: number) => {
+      const progress = clamp((now - startedAt) / duration, 0, 1);
+      const eased = easeOutCubic(progress);
+      visualQuotaRemaining = start + (target - start) * eased;
+
+      if (progress < 1) {
+        quotaAnimationFrame = window.requestAnimationFrame(step);
+      } else {
+        visualQuotaRemaining = target;
+        quotaAnimationFrame = undefined;
+      }
+    };
+
+    quotaAnimationFrame = window.requestAnimationFrame(step);
+  }
+
+  function cancelQuotaAnimation() {
+    if (quotaAnimationFrame !== undefined) {
+      window.cancelAnimationFrame(quotaAnimationFrame);
+      quotaAnimationFrame = undefined;
+    }
+  }
+
+  function easeOutCubic(value: number) {
+    const progress = clamp(value, 0, 1);
+    return 1 - Math.pow(1 - progress, 3);
   }
 
   function normalizeUpdatedAt(value?: string) {
@@ -1313,7 +1393,7 @@
       {:else if hasQuota && displayQuota}
         <span class="compact-prefix">Codex:</span>
         <span class="compact-meter" aria-hidden="true">
-          <span class="compact-meter-fill" style={`width:${displayQuota.quotaRemaining}%`}></span>
+          <span class="compact-meter-fill" style={`width:${visualQuotaWidth}`}></span>
         </span>
         <span class="compact-percent">{displayQuota.quotaRemaining}%</span>
       {/if}
@@ -1418,7 +1498,7 @@
             </span>
           </div>
           <div class="meter">
-            <div class="meter-fill" style={`width:${displayQuota.quotaRemaining}%`}></div>
+            <div class="meter-fill" style={`width:${visualQuotaWidth}`}></div>
           </div>
         </article>
       {/if}

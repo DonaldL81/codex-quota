@@ -14,7 +14,7 @@ use tokio::process::{Child, ChildStdout, Command};
 use tokio::time::timeout;
 
 const CLIENT_NAME: &str = "codex-quota-monitor-v2";
-const CLIENT_VERSION: &str = "2.6.7";
+const CLIENT_VERSION: &str = "2.6.8";
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(15);
 const CACHE_FILE: &str = "last-quota.json";
 #[cfg(windows)]
