@@ -2,11 +2,11 @@
 
 一个轻量的 Windows 托盘小工具，用来查看已登录 Codex 账号的剩余额度。
 
-当前版本：`2.6.5`
-
 **Codex提示词：**
-安装 [https://github.com/DonaldL81/codex-quota/](https://github.com/DonaldL81/codex-quota/tree/main/skills/codex-quota-skill)
-
+```text
+安装skill下载软件
+https://github.com/DonaldL81/codex-quota
+```
 ## 界面预览
 
 进度大窗：
@@ -37,7 +37,7 @@
 Codex Quota Monitor 2.6.5 Portable.exe
 ```
 
-推荐下载最新的 `Portable.exe` 后直接双击运行。首次运行会自动固定到当前用户程序目录并维护桌面快捷方式；稳定入口启动成功后，会清理旧的带版本 Portable 包。
+推荐下载最新的 `Portable.exe` 后直接双击运行。首次运行会自动固定到当前用户程序目录并维护桌面快捷方式；稳定入口路径为 `%LOCALAPPDATA%\Programs\Codex Quota Monitor\Codex Quota Monitor.exe`。稳定入口启动成功后，会清理旧的带版本 Portable 包。
 
 GitHub Release 会将文件名中的空格规范化为点号，下载附件时可能显示为 `Codex.Quota.Monitor.2.6.5.Portable.exe`。
 
